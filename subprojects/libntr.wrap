@@ -4,6 +4,14 @@ revision = main
 depth = 1
 directory = NitroSDK-4.2.30001
 
+# Single-screen (main_only) composite support lives in the sim layer, which is
+# upstream's code rather than this repo's, so it is carried here as a wrap
+# patch - the same way rapidjson/yyjson/zlib/libpng are patched. Authored
+# against libntr main @ 45360b20fa4669c3498dca149c092d23c0b07671; if upstream
+# moves and this stops applying, meson fails loudly at subproject download and
+# the patch needs rebasing onto the new base.
+diff_files = libntr_patch/0001-single-screen-composite.patch
+
 [provide]
 dependency_names = NitroSDK
 program_names = makelcf

@@ -136,3 +136,8 @@ compile_commands.json
 # Cheat files
 *.dct
 *.mch
+
+# libntr sim runtime droppings (written next to the CWD the game is launched from)
+DbgLog.txt
+sim_config.ini
+sim_config_prj.ini

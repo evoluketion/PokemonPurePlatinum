@@ -3,6 +3,8 @@
 #include <nitro/gx/g3.h>
 #include <nitro/types.h>
 
+#include <simulator/sim.h>
+
 #include "constants/graphics.h"
 #include "constants/heap.h"
 #include "constants/species.h"
@@ -265,6 +267,19 @@ static inline void ToggleCopyrightLayer(BOOL enable)
 
 static inline void ToggleLogoBgLayer(BOOL enable)
 {
+    // This layer is the decorative top_screen_border art, which fills the whole
+    // sub screen. In main_only single-screen mode it would opaquely hide the
+    // Giratina scene composited underneath, so force it off there instead of
+    // enabling it - the logo and press-start layers still overlay Giratina
+    // directly. This must still call through (not just skip the enable call):
+    // GXLayers_DisableEngineBLayers() only resets a software tracking variable,
+    // it doesn't touch the underlying hardware-equivalent register, so if this
+    // layer was left on by whatever screen ran before this one, merely skipping
+    // the "turn it on" call would leave that stale content visible.
+    if (SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
+        enable = FALSE;
+    }
+
     GXLayers_EngineBToggleLayers(GX_PLANEMASK_BG3, enable);
 }
 
@@ -280,6 +295,14 @@ static inline void TogglePressStartLayer(BOOL enable)
 
 static inline void ToggleLogoBg2Layer(BOOL enable)
 {
+    // Same border art as ToggleLogoBgLayer (see there), loaded onto a second
+    // layer for the intro fade transition. Same reasoning applies in main_only,
+    // including forcing off (not skipping) to actually clear stale hardware
+    // register state rather than just leaving it whatever it was before.
+    if (SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
+        enable = FALSE;
+    }
+
     GXLayers_EngineBToggleLayers(GX_PLANEMASK_BG1, enable);
 }
 
@@ -311,6 +334,16 @@ static BOOL TitleScreen_Init(ApplicationManager *appMan, int *unused)
 
     GX_SetVisiblePlane(0);
     GXS_SetVisiblePlane(0);
+
+    // Shrink the logo/press-start overlay and move it into the black space on
+    // the left of the Giratina scene in main_only single-screen mode. No
+    // effect in other layouts.
+    SIM_SetMainOnlyOverlayTransform(0.5f, 0.235f, 0.55f);
+
+    // The logo art carries a baked-in white matte from being anti-aliased
+    // against its (now hidden) light backdrop, which halos over the dark
+    // Giratina scene. Strip it.
+    SIM_SetMainOnlyOverlayDefringe(TRUE);
 
     SetAutorepeat(4, 8);
 
@@ -450,6 +483,10 @@ static BOOL TitleScreen_Exit(ApplicationManager *appMan, int *state)
     TitleScreenAppData *appData = ApplicationManager_Data(appMan);
     enum HeapID heapID = appData->heapID;
     enum TitleScreenNextApp nextApp = appData->nextApp;
+
+    // Reset so later screens aren't left with the title screen's overlay transform.
+    SIM_SetMainOnlyOverlayTransform(1.0f, 0.5f, 0.5f);
+    SIM_SetMainOnlyOverlayDefringe(FALSE);
 
     SetVBlankCallback(NULL, NULL);
 
