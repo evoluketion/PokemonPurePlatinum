@@ -14,6 +14,8 @@
 
 #include <simulator/sim.h>
 
+#include "port/sim_config_prj.h"
+
 #include "bg_window.h"
 #include "brightness_controller.h"
 #include "camera.h"
@@ -980,6 +982,17 @@ static int ov77_021D2D08(ApplicationManager *appMan, int *param1)
     v0->unk_08 = 0;
     v0->unk_2A8 = 0;
 
+#ifdef SDK_PORT
+    // This cutscene is sequenced entirely by counting its own frames against
+    // hardcoded numbers - 265 for the GAME FREAK reveal, 975 for the gameplay
+    // handover, 1600 for the stacked montage - and its animation tasks, screen
+    // fades and brightness ramps are all stepped once per logic frame too. At
+    // the 60 FPS option's doubled logic rate the whole thing simply plays at
+    // twice the speed. Hold the original 30Hz rate for the duration rather than
+    // trying to halve each timed thing individually; the presentation still
+    // renders at 60 FPS either way, since only the logic rate changes.
+    SIM_Config_prj_SetForce30FpsLogic(TRUE);
+#endif
 
     gSystem.whichScreenIs3D = DS_SCREEN_MAIN;
     GXLayers_SwapDisplay();
@@ -1050,6 +1063,11 @@ static int ov77_021D2E60(ApplicationManager *appMan, int *param1)
     // Don't leave any of the cutscene's single-screen framing applied to
     // whatever runs next, including on the skip path.
     SIM_ResetMainOnlyPlacements();
+
+#ifdef SDK_PORT
+    // Hand the frame rate back - the override is only for this cutscene.
+    SIM_Config_prj_SetForce30FpsLogic(FALSE);
+#endif
 
     LCRNG_SetSeed(v0->unk_14);
     ApplicationManager_FreeData(appMan);

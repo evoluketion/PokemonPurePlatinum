@@ -21,4 +21,21 @@ void SIM_Config_prj_SaveConfigFile(SIM_Config_prj_type * aConfig);
 void SIM_Config_prj_init();
 SIM_Config_prj_type * SIM_Config_prj_GetConfig();
 
+// Runtime override forcing the DS's original 30Hz logic rate even when the 60
+// FPS option is on, for sequences whose timing is written in frames and which
+// therefore run at double speed at 60Hz. Set it for the duration of such a
+// sequence and clear it afterwards. It is deliberately separate from
+// enable60fps so it is never persisted to the config file - it describes what
+// the game is currently doing, not what the user asked for.
+void SIM_Config_prj_SetForce30FpsLogic(BOOL force);
+BOOL SIM_Config_prj_GetForce30FpsLogic(void);
+
+// TRUE when game logic is currently stepping at the 60 FPS option's doubled
+// rate and the speed fix is on, so per-step animation and movement deltas need
+// halving to keep their original speed. This is the condition those sites should
+// test rather than the config flags directly: a sequence that has forced the
+// 30Hz rate back on via SIM_Config_prj_SetForce30FpsLogic is already running at
+// the original rate, and halving as well would run it at half speed.
+BOOL SIM_Config_prj_IsLogicRateDoubled(void);
+
 #endif

@@ -436,8 +436,7 @@ static BOOL MovementAction_FaceEast_Step0(MapObject *mapObj)
 static void MovementAction_InitWalk(MapObject *mapObj, int dir, fx32 distance, s16 duration, u16 param4)
 {
     #ifdef SDK_PORT
-    SIM_Config_prj_type * myConfig = SIM_Config_prj_GetConfig();
-    if(myConfig->enable60fps && myConfig->enable60fpsSpeedFix) {
+    if(SIM_Config_prj_IsLogicRateDoubled()) {
         duration = duration << 1;
         distance = distance >> 1;
     }

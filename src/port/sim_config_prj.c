@@ -119,3 +119,22 @@ SIM_Config_prj_type * SIM_Config_prj_GetConfig()
 {
   return &s_SIM_config_prj;
 }
+
+static BOOL s_SIM_force30FpsLogic = FALSE;
+
+void SIM_Config_prj_SetForce30FpsLogic(BOOL force)
+{
+  s_SIM_force30FpsLogic = force;
+}
+
+BOOL SIM_Config_prj_GetForce30FpsLogic(void)
+{
+  return s_SIM_force30FpsLogic;
+}
+
+BOOL SIM_Config_prj_IsLogicRateDoubled(void)
+{
+  return s_SIM_config_prj.enable60fps
+      && s_SIM_config_prj.enable60fpsSpeedFix
+      && !s_SIM_force30FpsLogic;
+}

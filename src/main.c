@@ -146,7 +146,11 @@ void NitroMain(void)
 
             if (!gSystem.frameCounter
 #ifdef SDK_PORT
-             && myConfig && !(myConfig->enable60fps)
+             // The second v-blank wait is what gives the DS its 30Hz logic rate.
+             // The 60 FPS option drops it; the override puts it back for
+             // sequences that are timed in frames and would otherwise run at
+             // double speed - see SIM_Config_prj_SetForce30FpsLogic.
+             && myConfig && (!(myConfig->enable60fps) || SIM_Config_prj_GetForce30FpsLogic())
 #endif
             ) {
                 OS_WaitIrq(TRUE, OS_IE_V_BLANK);
