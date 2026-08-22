@@ -13,33 +13,87 @@ index 8db60e5..f98ebb8 100644
  
  #define SIM_CONFIG_JOY_HAT_MASK (0x10000)
 diff --git a/include/simulator/sim.h b/include/simulator/sim.h
-index 5f8826c..279552e 100644
+index 5f8826c..1fb4a20 100644
 --- a/include/simulator/sim.h
 +++ b/include/simulator/sim.h
-@@ -67,6 +67,27 @@ void * SIM_sndAlarm(void * arg);
+@@ -67,6 +67,81 @@ void * SIM_sndAlarm(void * arg);
  void SIM_u16ToRGB( u16 in, u8 * r, u8 *g, u8 * b );
  SIM_config_type * SIM_GetConfigPtr();
  
-+// Shrinks and repositions the SUB engine's composited overlay content (see
-+// sim_config's SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) within the window. scale
-+// 1.0 (the default) draws it full-size as normal; e.g. 0.5 draws it at half
-+// size, with the MAIN engine's base content showing through around it.
-+// anchorX/anchorY (0..1, default 0.5/0.5 = centered) place the center of
-+// that scaled content within the window - e.g. anchorX 0.25 puts it in the
-+// left quarter. Has no effect outside main_only. A screen should call this
-+// itself if it wants its overlay content resized/repositioned - it isn't
-+// automatic.
-+void SIM_SetMainOnlyOverlayTransform(float scale, float anchorX, float anchorY);
++// Where one engine's output lands inside the window, and how it blends there,
++// under the composited single-screen layout (sim_config's
++// SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY). All of this is ignored in the
++// hardware-accurate layouts, where each engine simply fills its own screen.
++//
++// centerX/centerY (0..1) place the center of this engine's output in the
++// window; width/height (0..1) size it as a fraction of the window. The default
++// 0.5/0.5/1.0/1.0 fills the window. Because the window has a single screen's
++// aspect ratio, equal width and height keep the source undistorted - e.g.
++// 0.5/0.5 draws a half-size copy. Anything outside the rect is left to whatever
++// was drawn before it, or to the cleared background if nothing was, which is
++// what gives the black bars when two engines are placed side by side.
++//
++// cutout picks whether this engine is the base or an overlay. FALSE draws it
++// opaquely, backdrop included, so it covers what is underneath - what a base
++// layer wants. TRUE leaves untouched-backdrop pixels transparent so only real
++// drawn content (BG tiles, sprites) appears, letting the base show through
++// around it. Exactly one engine should normally have cutout FALSE; whichever it
++// is gets drawn first automatically, so a screen can hand the base role to
++// either engine.
++//
++// defringe strips the white matte from art that was anti-aliased against an
++// opaque light background. Much of this game's 2D art has near-white pixels
++// baked into its silhouette for that reason - invisible on hardware, where the
++// art has its own light backdrop behind it, but a conspicuous halo once the art
++// is composited over a dark scene. When enabled, silhouette pixels that are
++// essentially greyscale get their alpha reduced by how light they are, so the
++// matte fades while genuine art colors keep full opacity.
++//
++// hidden drops this engine from the composite entirely, as if it had drawn
++// nothing at all. Useful when a scene's content on one engine only made sense
++// as a second physical screen and has no place in the single-screen framing.
++//
++// srcCenterX/srcCenterY/srcWidth/srcHeight select which part of the engine's
++// own output is shown, defaulting to all of it (0.5/0.5/1.0/1.0). This is for
++// scenes that render a picture smaller than the screen and pad it with black:
++// cropping to the picture lets two engines be placed edge to edge without a
++// band of that padding between them. Note the aspect ratio is yours to keep -
++// cropping to a short wide band and then placing it in a tall rect stretches
++// it, so size the destination to match what you cropped.
++typedef struct {
++    float centerX;
++    float centerY;
++    float width;
++    float height;
++    float srcCenterX;
++    float srcCenterY;
++    float srcWidth;
++    float srcHeight;
++    BOOL cutout;
++    BOOL defringe;
++    BOOL hidden;
++} SIM_MainOnlyPlacement;
 +
-+// Strips the white matte from the SUB engine's composited overlay content.
-+// Much of this game's 2D art was anti-aliased against an opaque light
-+// background, leaving near-white pixels baked into its silhouette; harmless on
-+// hardware, where the art has its own light backdrop behind it, but a visible
-+// halo once the art is composited over a dark scene in main_only. When enabled,
-+// silhouette pixels that are essentially greyscale get their alpha reduced by
-+// how light they are, so the matte fades out while genuine art colors keep full
-+// opacity. Off by default, no effect outside main_only. Enable it per screen.
-+void SIM_SetMainOnlyOverlayDefringe(BOOL enable);
++// The two default composite roles, for initialising a placement before
++// adjusting the fields a caller actually cares about.
++#define SIM_MAIN_ONLY_PLACEMENT_BASE \
++    { 0.5f, 0.5f, 1.0f, 1.0f, 0.5f, 0.5f, 1.0f, 1.0f, FALSE, FALSE, FALSE }
++#define SIM_MAIN_ONLY_PLACEMENT_OVERLAY \
++    { 0.5f, 0.5f, 1.0f, 1.0f, 0.5f, 0.5f, 1.0f, 1.0f, TRUE, FALSE, FALSE }
++
++// Sets how the MAIN (isSub FALSE) or SUB (isSub TRUE) engine is composited under
++// main_only. A screen calls this for itself - nothing is automatic - and should
++// call SIM_ResetMainOnlyPlacements on the way out so it doesn't leave its own
++// framing applied to whatever runs next.
++void SIM_SetMainOnlyPlacement(BOOL isSub, const SIM_MainOnlyPlacement * placement);
++
++// Reads back one engine's current placement, so a caller can adjust a single
++// field without having to restate the rest.
++void SIM_GetMainOnlyPlacement(BOOL isSub, SIM_MainOnlyPlacement * placement);
++
++// Restores the default composite: MAIN filling the window as an opaque base,
++// SUB overlaid on it as a cutout, neither scaled, moved, nor defringed.
++void SIM_ResetMainOnlyPlacements(void);
 +
  extern GXVRamTex s_SIM_GXVRamTex;
  extern GXVRamTexPltt s_SIM_GXVRamTexPltt;
@@ -71,46 +125,70 @@ index b5bbc92..fe7bb32 100644
  }
  
 diff --git a/libraries/sim/src/g3_shader.c b/libraries/sim/src/g3_shader.c
-index 02e0402..3b95650 100644
+index 02e0402..001462f 100644
 --- a/libraries/sim/src/g3_shader.c
 +++ b/libraries/sim/src/g3_shader.c
-@@ -108,6 +108,11 @@ uniform vec4 backdropColor;\n\
+@@ -108,6 +108,17 @@ uniform vec4 backdropColor;\n\
  uniform int dispcnt;\n\
  uniform int winout;\n\
  uniform int bg0as3d;\n\
 +uniform int transparentBackdrop;\n\
-+uniform float overlayScale;\n\
-+uniform float overlayAnchorX;\n\
-+uniform float overlayAnchorY;\n\
-+uniform int overlayDefringe;\n\
++uniform float placeCenterX;\n\
++uniform float placeCenterY;\n\
++uniform float placeWidth;\n\
++uniform float placeHeight;\n\
++uniform int placeDefringe;\n\
++uniform int placeHidden;\n\
++uniform float srcCenterX;\n\
++uniform float srcCenterY;\n\
++uniform float srcWidth;\n\
++uniform float srcHeight;\n\
  \n\
  smooth in vec2 fragTexCoord;\n\
  //uniform float inAlpha;\n\
-@@ -128,20 +133,42 @@ void main()\n\
+@@ -119,6 +130,9 @@ void main()\n\
+     int oamsDrawn = 0;\n\
+     int currentBgDrawn = 5; // Backdrop\n\
+     bool objWindowEnabled = ((dispcnt >> 15) & 1) == 1;\n\
++    if(placeHidden == 1) {\n\
++        discard;\n\
++    }\n\
+     if(topScreen == 1) {\n\
+         if(fragTexCoord.t < 0.5){\n\
+             discard;\n\
+@@ -128,20 +142,50 @@ void main()\n\
              discard;\n\
          }\n\
      }\n\
 +    vec2 sampleCoord = fragTexCoord;\n\
-+    if(overlayScale < 0.999) {\n\
-+        // Shrink+reposition this pass's content within its own half of the window:\n\
-+        // discard fragments outside the scaled box (centered at overlayAnchorX/Y),\n\
-+        // and for fragments inside it, remap sampleCoord so the full source\n\
-+        // content maps onto that smaller box (a zoom-out). Fragments outside\n\
-+        // fall through to whatever the previous pass already drew (the base\n\
-+        // layer underneath).\n\
++    {\n\
++        // Map a rectangle of this engine's output onto a rectangle of the\n\
++        // window. The source rect (srcCenterX/Y, srcWidth/Height) picks how much\n\
++        // of the engine to show, which is what lets a caller crop away the black\n\
++        // letterboxing a scene renders around its picture; the destination rect\n\
++        // (placeCenterX/Y, placeWidth/Height) says where in the window it lands.\n\
++        // Both default to the full unit square, so the identity case costs a few\n\
++        // exact-arithmetic ops and changes nothing.\n\
++        //\n\
++        // Fragments outside the destination rect are discarded, falling through\n\
++        // to whatever an earlier pass drew or to the cleared background - which\n\
++        // is what produces the bars when two engines are placed into\n\
++        // non-overlapping rects.\n\
 +        float localT = (topScreen == 1) ? (fragTexCoord.t - 0.5) * 2.0 : fragTexCoord.t * 2.0;\n\
 +        float localS = fragTexCoord.s;\n\
-+        float loS = overlayAnchorX - overlayScale * 0.5;\n\
-+        float hiS = overlayAnchorX + overlayScale * 0.5;\n\
-+        float loT = overlayAnchorY - overlayScale * 0.5;\n\
-+        float hiT = overlayAnchorY + overlayScale * 0.5;\n\
++        float loS = placeCenterX - placeWidth * 0.5;\n\
++        float hiS = placeCenterX + placeWidth * 0.5;\n\
++        float loT = placeCenterY - placeHeight * 0.5;\n\
++        float hiT = placeCenterY + placeHeight * 0.5;\n\
 +        if(localS < loS || localS > hiS || localT < loT || localT > hiT) {\n\
 +            discard;\n\
 +        }\n\
-+        float newLocalS = (localS - loS) / overlayScale;\n\
-+        float newLocalT = (localT - loT) / overlayScale;\n\
-+        sampleCoord.s = newLocalS;\n\
-+        sampleCoord.t = (topScreen == 1) ? (newLocalT * 0.5 + 0.5) : (newLocalT * 0.5);\n\
++        float destS = (localS - loS) / placeWidth;\n\
++        float destT = (localT - loT) / placeHeight;\n\
++        float srcS = (srcCenterX - srcWidth * 0.5) + destS * srcWidth;\n\
++        float srcT = (srcCenterY - srcHeight * 0.5) + destT * srcHeight;\n\
++        sampleCoord.s = srcS;\n\
++        sampleCoord.t = (topScreen == 1) ? (srcT * 0.5 + 0.5) : (srcT * 0.5);\n\
 +    }\n\
      for(int i=0; i<4; i++) {\n\
          int bgNum = bgOrder[i];\n\
@@ -132,7 +210,7 @@ index 02e0402..3b95650 100644
          {\n\
              // Inside the window\n\
              if(((winout >> (bgNum+8)) & 1) == 0) {\n\
-@@ -154,59 +181,59 @@ void main()\n\
+@@ -154,59 +198,59 @@ void main()\n\
              }\n\
          }\n\
          // Draw the current bg\n\
@@ -214,7 +292,7 @@ index 02e0402..3b95650 100644
                  color.a = 1.0;\n\
                  currentBgDrawn = bgNum;\n\
              }\n\
-@@ -214,13 +241,62 @@ void main()\n\
+@@ -214,13 +258,62 @@ void main()\n\
      }\n\
      //Draw the remaining objs\n\
      for(int i=3-oamsDrawn; i>=0; i--) {\n\
@@ -233,7 +311,7 @@ index 02e0402..3b95650 100644
 +            color = backdropColor;\n\
 +        }\n\
 +    }\n\
-+    if(overlayDefringe == 1 && currentBgDrawn != 5) {\n\
++    if(placeDefringe == 1 && currentBgDrawn != 5) {\n\
 +        // Much of this game's 2D art was anti-aliased against an opaque light\n\
 +        // background, so silhouette pixels are baked-in near-white blends (a\n\
 +        // white matte). That is invisible on hardware, where the art sits on\n\
@@ -280,11 +358,40 @@ index 02e0402..3b95650 100644
      }\n\
      \n\
      if(inMasterBrightMode == 1) {\n\
+diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
+index 737f716..b1f15cd 100644
+--- a/libraries/sim/src/gui/gui.c
++++ b/libraries/sim/src/gui/gui.c
+@@ -16,6 +16,7 @@ static bool SIM_GUI_State = 0;
+ 
+ static bool s_showWindowConfig = 0;
+ static bool s_showWindowG2 = 0;
++static bool s_showWindowPlacement = false;
+ static bool s_showWindowNet = 0;
+ static bool s_showWindowPad = 0;
+ static bool s_showWindowPrjSpecific = 0;
+@@ -56,6 +57,7 @@ void SIM_GUI_Main(void)
+         SIM_GUI_AppButton("Config", &s_showWindowConfig, NULL, GUI_AppConfigMain);
+         SIM_GUI_AppButton("Input", &s_showWindowPad, NULL, GUI_AppPadMain);
+         SIM_GUI_AppButton("G2", &s_showWindowG2, NULL, GUI_AppG2Main);
++        SIM_GUI_AppButton("Placement", &s_showWindowPlacement, NULL, GUI_AppPlacementMain);
+         SIM_GUI_AppButton("Net", &s_showWindowNet, GUI_AppNetInit, GUI_AppNetMain);
+         SIM_GUI_AppButton("Imgui Demo", &s_showWindowImguiDemo, NULL, igShowDemoWindow);
+         SIM_GUI_AppButton("PrjSpecific", &s_showWindowPrjSpecific, NULL, SIM_GUI_Prj_main);
 diff --git a/libraries/sim/src/gui/gui_config.c b/libraries/sim/src/gui/gui_config.c
-index 7434a18..f950f3d 100644
+index 7434a18..a5feabe 100644
 --- a/libraries/sim/src/gui/gui_config.c
 +++ b/libraries/sim/src/gui/gui_config.c
-@@ -27,7 +27,8 @@ static int sVSyncInterval;
+@@ -13,6 +13,8 @@
+ 
+ #include <nitro/os.h>
+ 
++#include <stdio.h>
++
+ // External variables
+ extern SIM_config_type s_SIM_config;
+ 
+@@ -27,7 +29,8 @@ static int sVSyncInterval;
  static const char * ScreenLayoutStrings[] = {
      "Vertical",
      "Horizontal",
@@ -294,7 +401,7 @@ index 7434a18..f950f3d 100644
  };
  
  static const char * VblankStrings[] = {
-@@ -49,7 +50,7 @@ void GUI_AppConfigMain(bool * p_open)
+@@ -49,7 +52,7 @@ void GUI_AppConfigMain(bool * p_open)
      sFrameLimit = s_SIM_config.capFrameRate;
  
      igBegin("Config", p_open, 0);
@@ -303,50 +410,164 @@ index 7434a18..f950f3d 100644
          sConfigChanged = true;
      }
      if(igCheckbox("Swap Screens", &sSwapScreens)){
+@@ -78,3 +81,94 @@ void GUI_AppConfigMain(bool * p_open)
+     }
+     return;
+ }
++
++
++// Live editor for the main_only per-engine placements. Tuning these by eye is
++// the only practical way to frame a scene - the numbers mean nothing until you
++// see the composite - so this exposes them directly rather than requiring a
++// rebuild per adjustment. It also makes the state visible, which matters
++// because a screen setting a placement and failing to put it back looks
++// identical to a scene that simply draws nothing.
++//
++// Values set here last until the game writes them again, which scenes do at
++// their own transitions - so an edit sticks within a scene but is expected to
++// be overwritten when the next one starts.
++static void PlacementEditor(const char * aLabel, BOOL aIsSub)
++{
++    SIM_MainOnlyPlacement placement;
++    bool changed = false;
++    bool cutout;
++    bool defringe;
++    bool hidden;
++    char id[64];
++
++    SIM_GetMainOnlyPlacement(aIsSub, &placement);
++
++    cutout = placement.cutout ? true : false;
++    defringe = placement.defringe ? true : false;
++    hidden = placement.hidden ? true : false;
++
++    igText("%s", aLabel);
++
++    snprintf(id, sizeof(id), "center X##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.centerX, 0.0f, 1.0f, "%.3f", 0);
++    snprintf(id, sizeof(id), "center Y##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.centerY, 0.0f, 1.0f, "%.3f", 0);
++    snprintf(id, sizeof(id), "width##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.width, 0.0f, 1.0f, "%.3f", 0);
++    snprintf(id, sizeof(id), "height##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.height, 0.0f, 1.0f, "%.3f", 0);
++
++    snprintf(id, sizeof(id), "src center X##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.srcCenterX, 0.0f, 1.0f, "%.3f", 0);
++    snprintf(id, sizeof(id), "src center Y##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.srcCenterY, 0.0f, 1.0f, "%.3f", 0);
++    snprintf(id, sizeof(id), "src width##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.srcWidth, 0.0f, 1.0f, "%.3f", 0);
++    snprintf(id, sizeof(id), "src height##%s", aLabel);
++    changed |= igSliderFloat(id, &placement.srcHeight, 0.0f, 1.0f, "%.3f", 0);
++
++    snprintf(id, sizeof(id), "cutout (overlay)##%s", aLabel);
++    if(igCheckbox(id, &cutout)) {
++        placement.cutout = cutout ? TRUE : FALSE;
++        changed = true;
++    }
++    snprintf(id, sizeof(id), "defringe##%s", aLabel);
++    if(igCheckbox(id, &defringe)) {
++        placement.defringe = defringe ? TRUE : FALSE;
++        changed = true;
++    }
++    snprintf(id, sizeof(id), "hidden##%s", aLabel);
++    if(igCheckbox(id, &hidden)) {
++        placement.hidden = hidden ? TRUE : FALSE;
++        changed = true;
++    }
++
++    if(changed) {
++        SIM_SetMainOnlyPlacement(aIsSub, &placement);
++    }
++}
++
++void GUI_AppPlacementMain(bool * p_open)
++{
++    ImVec2 btnSize = {0, 0};
++
++    igBegin("Placement", p_open, 0);
++
++    if(s_SIM_config.screenLayout != SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
++        igText("Only applies to the Main Screen Only layout.");
++        igText("Current layout ignores these values.");
++        igSeparator();
++    }
++
++    PlacementEditor("MAIN engine", FALSE);
++    igSeparator();
++    PlacementEditor("SUB engine", TRUE);
++    igSeparator();
++
++    if(igButton("Reset both", btnSize)) {
++        SIM_ResetMainOnlyPlacements();
++    }
++
++    igEnd();
++}
+diff --git a/libraries/sim/src/gui/gui_internal.h b/libraries/sim/src/gui/gui_internal.h
+index 6d373fd..f970ca7 100644
+--- a/libraries/sim/src/gui/gui_internal.h
++++ b/libraries/sim/src/gui/gui_internal.h
+@@ -8,6 +8,7 @@ void GUI_AppG2Main(bool * p_open);
+ void GUI_AppNetMain(bool * p_open);
+ void GUI_AppOSMain(bool * p_open);
+ void GUI_AppPadMain(bool * p_open);
++void GUI_AppPlacementMain(bool * p_open);
+ 
+ void GUI_AppNetInit();
+ 
 diff --git a/libraries/sim/src/sim_main.c b/libraries/sim/src/sim_main.c
-index 8389013..2b88571 100644
+index 8389013..a880672 100644
 --- a/libraries/sim/src/sim_main.c
 +++ b/libraries/sim/src/sim_main.c
 @@ -64,6 +64,19 @@ extern int NitroSpMain(void * arg);
  //Simulator configuration
  SIM_config_type s_SIM_config = {};
  
-+// Per-screen opt-in scale+position (scale 1.0 = off, anchor 0.5/0.5 = centered)
-+// for shrinking and repositioning the SUB engine's overlay content under
-+// SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY. See DrawEngine's "overlayScale"/
-+// "overlayAnchorX"/"overlayAnchorY" uniforms and SIM_SetMainOnlyOverlayTransform.
-+static float s_SIM_mainOnlyOverlayScale = 1.0f;
-+static float s_SIM_mainOnlyOverlayAnchorX = 0.5f;
-+static float s_SIM_mainOnlyOverlayAnchorY = 0.5f;
-+
-+// Opt-in removal of the white matte baked into art that was authored against a
-+// light background. See the "overlayDefringe" uniform and
-+// SIM_SetMainOnlyOverlayDefringe.
-+static BOOL s_SIM_mainOnlyOverlayDefringe = FALSE;
++// Where each engine's output lands inside the window under
++// SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY, and how it blends there. Index 0 is the
++// MAIN engine, 1 is SUB - matching DrawEngine's isSub argument. The defaults
++// reproduce the plain overlay composite: MAIN fills the window opaquely as the
++// base, SUB is drawn over it as a cutout so only its real content shows. A
++// screen changes these for itself via SIM_SetMainOnlyPlacement and puts them
++// back with SIM_ResetMainOnlyPlacements; nothing here is automatic, and none of
++// it has any effect in the other (hardware-accurate) screen layouts.
++static SIM_MainOnlyPlacement s_SIM_mainOnlyPlacement[2] = {
++    SIM_MAIN_ONLY_PLACEMENT_BASE,
++    SIM_MAIN_ONLY_PLACEMENT_OVERLAY
++};
 +
  //Thread
  extern OSThreadInfo OSi_ThreadInfo;
  
-@@ -353,6 +366,18 @@ SIM_config_type * SIM_GetConfigPtr()
+@@ -353,6 +366,25 @@ SIM_config_type * SIM_GetConfigPtr()
      return &s_SIM_config;
  }
  
-+void SIM_SetMainOnlyOverlayTransform(float scale, float anchorX, float anchorY)
++void SIM_SetMainOnlyPlacement(BOOL isSub, const SIM_MainOnlyPlacement * placement)
 +{
-+    s_SIM_mainOnlyOverlayScale = scale;
-+    s_SIM_mainOnlyOverlayAnchorX = anchorX;
-+    s_SIM_mainOnlyOverlayAnchorY = anchorY;
++    s_SIM_mainOnlyPlacement[isSub ? 1 : 0] = *placement;
 +}
 +
-+void SIM_SetMainOnlyOverlayDefringe(BOOL enable)
++void SIM_GetMainOnlyPlacement(BOOL isSub, SIM_MainOnlyPlacement * placement)
 +{
-+    s_SIM_mainOnlyOverlayDefringe = enable;
++    *placement = s_SIM_mainOnlyPlacement[isSub ? 1 : 0];
++}
++
++void SIM_ResetMainOnlyPlacements(void)
++{
++    SIM_MainOnlyPlacement mainPlacement = SIM_MAIN_ONLY_PLACEMENT_BASE;
++    SIM_MainOnlyPlacement subPlacement = SIM_MAIN_ONLY_PLACEMENT_OVERLAY;
++
++    s_SIM_mainOnlyPlacement[0] = mainPlacement;
++    s_SIM_mainOnlyPlacement[1] = subPlacement;
 +}
 +
  
  static u64 map(u64 x, u64 in_min, u64 in_max, u64 out_min, u64 out_max)
  {
-@@ -1086,6 +1111,10 @@ void * SIM_RenderInit(void * arg){
+@@ -1086,6 +1118,10 @@ void * SIM_RenderInit(void * arg){
                  windowHeight = SIM_NDS_SCREEN_HEIGHT*2*2;
                  windowWidth = (SIM_NDS_SCREEN_WIDTH*2*2) + (SIM_NDS_SCREEN_WIDTH * 2);
                  break;
@@ -357,7 +578,7 @@ index 8389013..2b88571 100644
          }
      } else {
          windowHeight = s_SIM_config.windowHeight;
-@@ -1200,6 +1229,19 @@ void * SIM_RenderInit(void * arg){
+@@ -1200,6 +1236,19 @@ void * SIM_RenderInit(void * arg){
  
  
      GenerateTexture(dummyScreenTextureId, SIM_NDS_SCREEN_WIDTH, SIM_NDS_SCREEN_HEIGHT*2);
@@ -377,7 +598,7 @@ index 8389013..2b88571 100644
      GenerateTexture(objWindowTextureId, SIM_NDS_SCREEN_WIDTH, SIM_NDS_SCREEN_HEIGHT*2);
      GenerateTexture(g3TextureId1024, 1024, 1024);
      GenerateTexture(g3TextureId1024x512, 1024, 512);
-@@ -1542,6 +1584,28 @@ static void DrawEngine(BOOL isSub) {
+@@ -1542,6 +1591,48 @@ static void DrawEngine(BOOL isSub) {
      //Pass bg0as3d to the shader
      glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "bg0as3d") , bg0as3d);
  
@@ -385,28 +606,48 @@ index 8389013..2b88571 100644
 +    // top of the MAIN engine's base image: wherever nothing was actually drawn (just backdrop),
 +    // the shader should leave that pixel transparent instead of filling it with the backdrop
 +    // color, so the MAIN engine's content shows through underneath instead of being overwritten.
-+    int transparentBackdrop = (isSub && s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) ? 1 : 0;
++    // Under main_only both engines share one window, so this pass's placement
++    // decides where its output lands and whether it paints its backdrop. Outside
++    // main_only every engine fills its own screen region opaquely, which is the
++    // hardware behaviour, so the placement is forced back to the identity here
++    // rather than being left to whatever a screen last set.
++    BOOL isMainOnly = (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY);
++    const SIM_MainOnlyPlacement * placement = &s_SIM_mainOnlyPlacement[isSub ? 1 : 0];
++
++    // A cutout pass leaves untouched-backdrop pixels transparent instead of
++    // filling them with the backdrop color, so whatever was drawn underneath
++    // shows through and only this engine's real content overlays it.
++    int transparentBackdrop = (isMainOnly && placement->cutout) ? 1 : 0;
 +    glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "transparentBackdrop") , transparentBackdrop);
 +
-+    // Lets a screen shrink+reposition its own SUB-engine overlay content within
-+    // the composited single-screen layout (see SIM_SetMainOnlyOverlayTransform).
-+    // Only applies to the SUB pass under main_only; 1.0/0.5/0.5 (no-op,
-+    // centered) everywhere else.
-+    BOOL isMainOnlyOverlayPass = isSub && s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY;
-+    float overlayScale = isMainOnlyOverlayPass ? s_SIM_mainOnlyOverlayScale : 1.0f;
-+    float overlayAnchorX = isMainOnlyOverlayPass ? s_SIM_mainOnlyOverlayAnchorX : 0.5f;
-+    float overlayAnchorY = isMainOnlyOverlayPass ? s_SIM_mainOnlyOverlayAnchorY : 0.5f;
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "overlayScale") , overlayScale);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "overlayAnchorX") , overlayAnchorX);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "overlayAnchorY") , overlayAnchorY);
++    float placeCenterX = isMainOnly ? placement->centerX : 0.5f;
++    float placeCenterY = isMainOnly ? placement->centerY : 0.5f;
++    float placeWidth = isMainOnly ? placement->width : 1.0f;
++    float placeHeight = isMainOnly ? placement->height : 1.0f;
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeCenterX") , placeCenterX);
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeCenterY") , placeCenterY);
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeWidth") , placeWidth);
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeHeight") , placeHeight);
 +
-+    int overlayDefringe = (isMainOnlyOverlayPass && s_SIM_mainOnlyOverlayDefringe) ? 1 : 0;
-+    glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "overlayDefringe") , overlayDefringe);
++    int placeDefringe = (isMainOnly && placement->defringe) ? 1 : 0;
++    glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeDefringe") , placeDefringe);
++
++    int placeHidden = (isMainOnly && placement->hidden) ? 1 : 0;
++    glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeHidden") , placeHidden);
++
++    float srcCenterX = isMainOnly ? placement->srcCenterX : 0.5f;
++    float srcCenterY = isMainOnly ? placement->srcCenterY : 0.5f;
++    float srcWidth = isMainOnly ? placement->srcWidth : 1.0f;
++    float srcHeight = isMainOnly ? placement->srcHeight : 1.0f;
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcCenterX") , srcCenterX);
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcCenterY") , srcCenterY);
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcWidth") , srcWidth);
++    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcHeight") , srcHeight);
 +
      //Pass master bright info to the shader
      float masterBrightFactor = isSub ? (float)(s_reg_GXS_DB_MASTER_BRIGHT & 0b11111) : (float)(s_reg_GX_MASTER_BRIGHT & 0b11111);
      if(masterBrightFactor > 16.0f) {
-@@ -1716,6 +1780,9 @@ void * SIM_Render(void *arg){
+@@ -1716,6 +1807,9 @@ void * SIM_Render(void *arg){
              case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
                  aspectRatio = 768.0f / 384.0f;
                  break;
@@ -416,7 +657,7 @@ index 8389013..2b88571 100644
          }
  
          viewWidth = windowWidth;
-@@ -1753,6 +1820,13 @@ void * SIM_Render(void *arg){
+@@ -1753,6 +1847,13 @@ void * SIM_Render(void *arg){
                      s_TouchPanelCoords[2] = viewX + ((viewWidth / 3) * 2);
                      s_TouchPanelCoords[3] = viewY + viewHeight;
                      break;
@@ -430,7 +671,7 @@ index 8389013..2b88571 100644
              }
          } else {
              switch(s_SIM_config.screenLayout){
-@@ -1775,6 +1849,13 @@ void * SIM_Render(void *arg){
+@@ -1775,6 +1876,13 @@ void * SIM_Render(void *arg){
                      s_TouchPanelCoords[2] = viewX + viewWidth;
                      s_TouchPanelCoords[3] = viewY + viewHeight;
                      break;
@@ -444,7 +685,7 @@ index 8389013..2b88571 100644
              }
          }
  
-@@ -1961,7 +2042,10 @@ void * SIM_Render(void *arg){
+@@ -1961,7 +2069,10 @@ void * SIM_Render(void *arg){
          //}
  
          //Convert touch coordinate to DS screen coordinates
@@ -456,22 +697,36 @@ index 8389013..2b88571 100644
          {
              s_tpData.x = (u16)map(x, s_TouchPanelCoords[0], s_TouchPanelCoords[2], 0, SIM_NDS_SCREEN_WIDTH);
              s_tpData.y = (u16)map(y, s_TouchPanelCoords[1], s_TouchPanelCoords[3], 0, SIM_NDS_SCREEN_HEIGHT);
-@@ -1986,8 +2070,14 @@ void * SIM_Render(void *arg){
-         //Draw MAIN engine
-         DrawEngine(FALSE);
+@@ -1983,12 +2094,23 @@ void * SIM_Render(void *arg){
+         memset( bg2stex, 0, sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2 );
+         memset( bg3stex, 0, sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2 );
  
+-        //Draw MAIN engine
+-        DrawEngine(FALSE);
 -
-         //SUB engine
-+        // In the composited single-screen layout, both engines share the same window
-+        // footprint (see s_MainOnlyCompositeQuad). The MAIN engine above draws as an
-+        // opaque base; DrawEngine makes this SUB pass leave untouched backdrop pixels
-+        // transparent (see the transparentBackdrop uniform) so only its actual drawn
-+        // content - logo, text, sprites - shows up as a cutout overlay on the base,
-+        // using the normal alpha blending already active. Other layouts keep screens
-+        // in separate regions of the window, so they're unaffected by this.
-         DrawEngine(TRUE);
+-
+-        //SUB engine
+-        DrawEngine(TRUE);
++        // Hardware draws MAIN then SUB into separate screens, and every layout
++        // except main_only keeps them in separate regions of the window, so the
++        // order is irrelevant there. Under main_only the two engines can share a
++        // window footprint (see s_MainOnlyCompositeQuad), and then order decides
++        // what covers what: an opaque base pass has to be drawn before the cutout
++        // pass that overlays it. Which engine is the base is up to the screen -
++        // the opening cutscene hands that role back and forth as it swaps which
++        // engine drives the top display - so pick the order from the placements
++        // rather than assuming MAIN is always underneath. When both are opaque
++        // they occupy non-overlapping rects and the order genuinely doesn't
++        // matter.
++        BOOL drawSubFirst = (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY)
++            && s_SIM_mainOnlyPlacement[0].cutout
++            && !s_SIM_mainOnlyPlacement[1].cutout;
++
++        DrawEngine(drawSubFirst);
++        DrawEngine(!drawSubFirst);
  
          //Run HBlank Interrupt
+         OS_IRQTable[OS_IE_H_BLANK-1]();
 diff --git a/libraries/sim/src/sim_screenquads.c b/libraries/sim/src/sim_screenquads.c
 index a3803eb..192d9d5 100644
 --- a/libraries/sim/src/sim_screenquads.c

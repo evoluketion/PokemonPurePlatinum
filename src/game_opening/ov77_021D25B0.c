@@ -12,6 +12,8 @@
 #include "game_opening/struct_ov77_021D6CFC_decl.h"
 #include "overlay009/camera_configuration.h"
 
+#include <simulator/sim.h>
+
 #include "bg_window.h"
 #include "brightness_controller.h"
 #include "camera.h"
@@ -228,6 +230,64 @@ const GXRgb Unk_ov77_021D7444[4] = {
     GX_RGB(2, 2, 12),
     GX_RGB(31, 31, 31),
 };
+
+// Framings for the composited single-screen layout (main_only). This cutscene
+// moves its content between the two engines as it runs, and on hardware that
+// just means "look at the other screen" - which a single screen cannot do. So
+// each scene states which engine the viewer should be looking at and where it
+// belongs in the window. All of this is inert in the hardware-accurate layouts.
+
+// Only the bottom screen's engine has anything worth showing: it fills the
+// window as the opaque base and the other engine is dropped entirely.
+static const SIM_MainOnlyPlacement sOpeningFramingHidden = {
+    .centerX = 0.5f, .centerY = 0.5f, .width = 1.0f, .height = 1.0f,
+    .srcCenterX = 0.5f, .srcCenterY = 0.5f, .srcWidth = 1.0f, .srcHeight = 1.0f,
+    .cutout = FALSE, .defringe = FALSE, .hidden = TRUE,
+};
+static const SIM_MainOnlyPlacement sOpeningFramingFull = {
+    .centerX = 0.5f, .centerY = 0.5f, .width = 1.0f, .height = 1.0f,
+    .srcCenterX = 0.5f, .srcCenterY = 0.5f, .srcWidth = 1.0f, .srcHeight = 1.0f,
+    .cutout = FALSE, .defringe = FALSE, .hidden = FALSE,
+};
+
+// Both screens matter at once. The montage art is authored as a single 256x512
+// image and split across the two screens by scrolling each engine to its own
+// band of it (see ov77_021D3DC4), so stacking the engines at half scale puts
+// that image back together rather than jamming two unrelated pictures side by
+// side. Half scale in both axes keeps it undistorted, at the cost of leaving
+// the left and right thirds of the window black. centerY is measured upwards,
+// so the MAIN engine's 0.75 is the top half.
+// These shots render a 256x127 picture centred in the 256x192 screen and pad the
+// rest with black, on both engines. Cropping to that picture is what lets the
+// two halves meet instead of having two bands of padding between them. The
+// destination is then sized to match the crop's shape - half the window height,
+// and 0.756 of its width (96 * 256/127 = 193 of 256 px) - so nothing stretches.
+#define OPENING_MONTAGE_SRC_CENTER_Y 0.508f
+#define OPENING_MONTAGE_SRC_HEIGHT 0.662f
+#define OPENING_MONTAGE_DEST_WIDTH 0.756f
+
+static const SIM_MainOnlyPlacement sOpeningFramingStackedTop = {
+    .centerX = 0.5f, .centerY = 0.75f, .width = OPENING_MONTAGE_DEST_WIDTH, .height = 0.5f,
+    .srcCenterX = 0.5f, .srcCenterY = OPENING_MONTAGE_SRC_CENTER_Y,
+    .srcWidth = 1.0f, .srcHeight = OPENING_MONTAGE_SRC_HEIGHT,
+    .cutout = FALSE, .defringe = FALSE, .hidden = FALSE,
+};
+static const SIM_MainOnlyPlacement sOpeningFramingStackedBottom = {
+    .centerX = 0.5f, .centerY = 0.25f, .width = OPENING_MONTAGE_DEST_WIDTH, .height = 0.5f,
+    .srcCenterX = 0.5f, .srcCenterY = OPENING_MONTAGE_SRC_CENTER_Y,
+    .srcWidth = 1.0f, .srcHeight = OPENING_MONTAGE_SRC_HEIGHT,
+    .cutout = FALSE, .defringe = FALSE, .hidden = FALSE,
+};
+
+static void SetOpeningFraming(const SIM_MainOnlyPlacement *mainEngine, const SIM_MainOnlyPlacement *subEngine)
+{
+    if (SIM_GetConfigPtr()->screenLayout != SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
+        return;
+    }
+
+    SIM_SetMainOnlyPlacement(FALSE, mainEngine);
+    SIM_SetMainOnlyPlacement(TRUE, subEngine);
+}
 
 static void ov77_021D25B0(void)
 {
@@ -920,6 +980,7 @@ static int ov77_021D2D08(ApplicationManager *appMan, int *param1)
     v0->unk_08 = 0;
     v0->unk_2A8 = 0;
 
+
     gSystem.whichScreenIs3D = DS_SCREEN_MAIN;
     GXLayers_SwapDisplay();
     v0->unk_14 = LCRNG_GetSeed();
@@ -986,6 +1047,10 @@ static int ov77_021D2E60(ApplicationManager *appMan, int *param1)
         FinishScreenFade();
     }
 
+    // Don't leave any of the cutscene's single-screen framing applied to
+    // whatever runs next, including on the skip path.
+    SIM_ResetMainOnlyPlacements();
+
     LCRNG_SetSeed(v0->unk_14);
     ApplicationManager_FreeData(appMan);
     Heap_Destroy(HEAP_ID_76);
@@ -1033,6 +1098,22 @@ static void ov77_021D2F0C(UnkStruct_ov77_021D2E9C *param0)
     param0->unk_18.unk_14 = ov77_021D670C();
 
     SetVBlankCallback(ov77_021D2B30, (void *)param0);
+
+    // Copyright/legal phase. The MAIN engine carries the "(c)2009 Pokemon /
+    // Nintendo / Creatures / GAME FREAK" text (BG_LAYER_MAIN_1), the SUB engine
+    // carries the ESRB rating notice meant for the other physical screen
+    // (BG_LAYER_SUB_1), and both engines draw the same full-screen backdrop
+    // pattern. Composited into one window the SUB engine covers the MAIN one
+    // completely, so only the ESRB notice is visible. There is no room to show
+    // both, and the copyright text is the one this phase is really about, so
+    // drop the SUB engine from the composite for the duration.
+    if (SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
+        SIM_MainOnlyPlacement placement;
+
+        SIM_GetMainOnlyPlacement(TRUE, &placement);
+        placement.hidden = TRUE;
+        SIM_SetMainOnlyPlacement(TRUE, &placement);
+    }
 
     param0->unk_18.unk_02 = 1;
 }
@@ -1107,6 +1188,43 @@ static BOOL ov77_021D30D0(UnkStruct_ov77_021D2F38 *param0, const int param1)
             GXLayers_EngineAToggleLayers(GX_PLANEMASK_BG2, 1);
             GXLayers_EngineBToggleLayers(GX_PLANEMASK_BG2, 1);
 
+            // This is where the copyright half of this phase gives way to the
+            // "GAME FREAK presents" half: BG1's legal text goes off, BG2's
+            // GAME FREAK art comes on. The monolith logo is MAIN's BG2 and the
+            // "GAME FREAK / PRESENTS" lettering is SUB's, so under main_only the
+            // SUB engine has to come back into the composite here - the
+            // copyright half deliberately drops it to keep the ESRB notice from
+            // covering the copyright text (see ov77_021D2F0C).
+            if (SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
+                SIM_MainOnlyPlacement placement;
+
+                // SUB's BG3 is the same full-screen dark background with red
+                // side borders that MAIN's BG3 draws. A cutout overlay only
+                // makes untouched *backdrop* transparent, not drawn content, so
+                // leaving this on paints that background straight over the logo.
+                // MAIN's copy still fills the window, so dropping SUB's costs
+                // nothing.
+                GXLayers_EngineBToggleLayers(GX_PLANEMASK_BG3, 0);
+
+                // Both halves of the art sit near the middle of their own
+                // screen, so composited one-to-one the lettering lands on top of
+                // the logo. Push the SUB engine's content down so the lettering
+                // clears the logo. centerY is measured upwards, so lower values
+                // move content down the screen.
+                SIM_GetMainOnlyPlacement(TRUE, &placement);
+                placement.hidden = FALSE;
+                placement.cutout = TRUE;
+                placement.centerY = 0.271f;
+                SIM_SetMainOnlyPlacement(TRUE, &placement);
+
+                // Lift the logo to meet it, so the two read as one vertically
+                // centred group instead of sitting low together. Only BG2 is
+                // scrolled, so BG3's background and side borders stay put -
+                // moving the whole engine would drag those with it and leave a
+                // black band.
+                Bg_SetOffset(param0->unk_0C, BG_LAYER_MAIN_2, BG_OFFSET_UPDATE_SET_Y, 23);
+            }
+
             param0->unk_07 = 0;
             param0->unk_06 = 0;
             param0->unk_08 = 0;
@@ -1141,6 +1259,10 @@ static BOOL ov77_021D30D0(UnkStruct_ov77_021D2F38 *param0, const int param1)
 static void ov77_021D3234(UnkStruct_ov77_021D2E9C *param0)
 {
     SetVBlankCallback(NULL, NULL);
+
+    // Undo the SUB engine being dropped from the composite for the copyright
+    // phase (see ov77_021D2F0C) - later phases need it back.
+    SIM_ResetMainOnlyPlacements();
 
     if (param0->unk_18.unk_02) {
         ov77_021D67B0(param0->unk_18.unk_14);
@@ -1318,6 +1440,12 @@ static void ov77_021D34A8(UnkStruct_ov77_021D2E9C *param0)
 
     gSystem.whichScreenIs3D = DS_SCREEN_MAIN;
     GXLayers_SwapDisplay();
+
+    // Each phase states the single-screen framing it wants rather than
+    // inheriting whatever the previous one left behind - the copyright phase in
+    // particular drops the SUB engine entirely, and this phase needs it back to
+    // show the "GAME FREAK presents" text that sits on it.
+    SIM_ResetMainOnlyPlacements();
 
     for (v0 = 0; v0 < 4; v0++) {
         NNS_G3dGlbLightVector(v0, Unk_ov77_021D776C[v0].x, Unk_ov77_021D776C[v0].y, Unk_ov77_021D776C[v0].z);
@@ -1867,6 +1995,22 @@ static BOOL ov77_021D4230(UnkStruct_ov77_021D2E9C *param0, UnkStruct_ov77_021D37
             GXLayers_EngineAToggleLayers(GX_PLANEMASK_BG0, 1);
             StartScreenFade(FADE_MAIN_ONLY, FADE_TYPE_BRIGHTNESS_IN, FADE_TYPE_BRIGHTNESS_IN, COLOR_WHITE, 18, 1, HEAP_ID_76);
             param1->unk_08 = 16;
+
+            // Hand the window over from the Pokemon logo to the gameplay
+            // footage. Which engine is which flipped a moment ago: at frame 944
+            // the cutscene set whichScreenIs3D to DS_SCREEN_SUB and swapped the
+            // display, which puts the SUB engine on the top LCD and the MAIN
+            // engine on the bottom. So from here the logo is SUB's (BG_LAYER_SUB_0,
+            // priority 0, on until frame 1600) and the gameplay is MAIN's, whose
+            // BG0 is the 3D layer and comes on at this very frame.
+            //
+            // That is why this shows MAIN and hides SUB rather than the other way
+            // round: hiding SUB is what makes the logo disappear, which is the
+            // half of the handover a single screen has to do explicitly - on
+            // hardware the logo simply stays on the screen the viewer looks away
+            // from.
+            SetOpeningFraming(&sOpeningFramingFull, &sOpeningFramingHidden);
+
             (*v0)++;
         }
         break;
@@ -1942,6 +2086,13 @@ static BOOL ov77_021D4230(UnkStruct_ov77_021D2E9C *param0, UnkStruct_ov77_021D37
 
             G2_BlendNone();
             G2S_BlendNone();
+
+            // From here the cutscene runs both screens at once - the two
+            // trainers running, the poke ball throws, the pokemon appearing -
+            // with the halves of each shot split across the engines. Stack them
+            // so both are visible together.
+            SetOpeningFraming(&sOpeningFramingStackedTop, &sOpeningFramingStackedBottom);
+
             StartScreenFade(FADE_BOTH_SCREENS, FADE_TYPE_BRIGHTNESS_IN, FADE_TYPE_BRIGHTNESS_IN, COLOR_WHITE, 18, 1, HEAP_ID_76);
             (*v0)++;
         }
@@ -2484,6 +2635,9 @@ static BOOL ov77_021D5254(UnkStruct_ov77_021D2E9C *param0)
 
 static void ov77_021D52C8(UnkStruct_ov77_021D2E9C *param0)
 {
+    // See ov77_021D34A8 - each phase declares its own single-screen framing.
+    SIM_ResetMainOnlyPlacements();
+
     int v0;
     int v1;
 

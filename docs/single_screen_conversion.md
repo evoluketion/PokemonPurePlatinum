@@ -127,47 +127,102 @@ it's the expected shape of what the "Rolling out" section below describes as
 with a similar dedicated full-screen border/fill layer on their overlay
 engine will likely need the same kind of targeted force-off.
 
-## Placing and cleaning up overlay content
+## Placing engine output: `SIM_MainOnlyPlacement`
 
 Removing an overlay engine's full-screen fill leaves its real content sitting
 wherever the DS layout put it — sized and positioned for a screen of its own,
-which rarely suits the composited single-screen frame. Two opt-in sim-layer
-helpers (both in `simulator/sim.h`, both no-ops outside `main_only`, and both
-defaulting to off so no other screen changes behavior) handle the common
-cases. A screen calls them for itself; nothing is automatic.
+which rarely suits the composited single-screen frame. `simulator/sim.h`
+exposes one struct describing how an engine is composited, set per engine:
 
-**`SIM_SetMainOnlyOverlayTransform(scale, anchorX, anchorY)`** shrinks the SUB
-engine's overlay content and places it. `scale` 1.0 draws it full-size;
-`anchorX`/`anchorY` (0..1, default 0.5/0.5 = centered) position the center of
-the scaled content in the window. The title screen uses
-`(0.5f, 0.235f, 0.55f)` to tuck the logo and "PRESS START" into the dark space
-at the left of the Giratina scene. Implemented in `G2SIM_FragmentShader` by
-discarding fragments outside the anchored box and remapping the texture
-coordinate inside it, so it costs nothing but a coordinate transform.
+```c
+SIM_MainOnlyPlacement p = SIM_MAIN_ONLY_PLACEMENT_OVERLAY;
+p.centerX = 0.235f;  p.centerY = 0.55f;
+p.width   = 0.5f;    p.height  = 0.5f;
+p.defringe = TRUE;
+SIM_SetMainOnlyPlacement(TRUE, &p);   // TRUE = SUB engine
+```
 
-**`SIM_SetMainOnlyOverlayDefringe(TRUE)`** strips the white matte from art
-that was anti-aliased against an opaque light background. Much of this game's
-2D art has near-white pixels baked into its silhouette for exactly that
-reason — invisible on hardware, where the art has its own light backdrop
-behind it, but a conspicuous halo once the art is composited over a dark
-scene. The shader reduces alpha by lightness, but only for near-greyscale
-pixels, and only near the silhouette: it measures how far the pixel is from
-undrawn space (up to three texels) and scales the fade down with distance, so
-the matte tapers off instead of a hard bite being taken out of the art.
-Genuine art colors — the logo's yellow fill, its blue outline — sit well above
-the greyscale threshold and keep full opacity, and interior white (the
-"PLATINUM VERSION" lettering) is shielded by its own black outline.
+`SIM_GetMainOnlyPlacement` reads one back so a caller can change a single field,
+and `SIM_ResetMainOnlyPlacements` restores the defaults. A screen calls these for
+itself — nothing is automatic — and should reset on the way out so it doesn't
+leave its framing applied to whatever runs next. All of it is inert outside
+`main_only`.
 
-The thresholds in `G2SIM_FragmentShader` are tuned by eye against the title
-screen logo; if another screen's art needs it stronger or gentler, the knobs
-are the `smoothstep` range (how dark a grey still counts as matte), the
-`mx - mn` greyscale cutoff, and the per-distance `strength` values.
+The fields fall into four groups:
 
-Doing this in the shader is deliberate: the alternative, editing the source
-art, would change the generated NARC and break the `filesys.sha1` / ROM
-matching that the DS build still verifies. Keeping the fix in the
-presentation layer leaves the art byte-identical and the authentic dual-screen
-layouts untouched.
+- **Destination rect** (`centerX`/`centerY`/`width`/`height`, defaulting to the
+  full window). Where this engine's output lands. Note `centerY` is measured
+  **upwards** — the composite quad maps window-bottom to `t=0.5` and window-top
+  to `t=1.0` — so *lower* values move content *down* the screen.
+- **Source rect** (`srcCenterX`/`srcCenterY`/`srcWidth`/`srcHeight`, defaulting
+  to all of it). Which part of the engine's output to show. This exists because
+  scenes routinely render a picture smaller than the screen and pad it with
+  black; cropping to the picture is what lets two engines sit edge to edge
+  without a band of that padding between them. **Aspect ratio is the caller's
+  problem**: crop a short wide band and place it in a tall rect and it stretches.
+  Size the destination from the crop.
+- **`cutout`**. `FALSE` draws the engine opaquely, backdrop included, covering
+  what is underneath — a base layer. `TRUE` leaves untouched-*backdrop* pixels
+  transparent so only real drawn content appears over the base. Note the
+  distinction: a cutout removes backdrop, not drawn content, so a full-screen
+  background *layer* still covers everything and has to be toggled off in game
+  code (see above). Whichever engine has `cutout = FALSE` is drawn first, so
+  either engine can be the base — which the opening cutscene relies on, since it
+  hands that role back and forth as it swaps which engine drives the display.
+- **`defringe`** strips the white matte from art anti-aliased against an opaque
+  light background. Much of this game's 2D art has near-white pixels baked into
+  its silhouette for that reason — invisible on hardware, where the art has its
+  own light backdrop, but a conspicuous halo once composited over a dark scene.
+  Silhouette pixels that are essentially greyscale get their alpha reduced by how
+  light they are; genuine art colors keep full opacity. Thresholds are tuned by
+  eye in `G2SIM_FragmentShader`.
+- **`hidden`** drops the engine from the composite entirely, for content that
+  only made sense as a second physical screen.
+
+Doing the de-fringe in the shader is deliberate: editing the source art would
+change the generated NARC and break the `filesys.sha1` / ROM matching the DS
+build still verifies. Keeping it in the presentation layer leaves the art
+byte-identical and the authentic dual-screen layouts untouched.
+
+### Tuning placements live
+
+Framing a scene is a by-eye job — the numbers mean nothing until you see the
+composite. The debug overlay (Tab) has a **Placement** panel with sliders for
+every field on both engines, plus a reset. Values set there last until the game
+writes them again, which scenes do at their own transitions, so an edit sticks
+within a scene and is overwritten when the next one starts. It also makes the
+state *visible*, which matters because a screen that sets a placement and fails
+to put it back looks exactly like a scene that simply draws nothing.
+
+## Worked example: the opening cutscene
+
+`src/game_opening/` is the second thing converted, and it is a better guide than
+the title screen because it needs a different framing in almost every scene. The
+pattern that emerged: **each scene states the framing it wants at its own
+transition**, rather than relying on the previous scene's teardown. Framings are
+declared as file-scope constants and applied through a small helper that
+no-ops outside `main_only`.
+
+Three things about this cutscene generalise:
+
+1. **Phase boundaries are not scene boundaries.** The copyright text and the
+   "GAME FREAK presents" scene are two halves of *one* phase, split at a frame
+   number partway through it. Hiding an engine for "the copyright phase" also
+   hid the GAME FREAK lettering, which lives on that engine. Scope framing
+   changes to the frame the content actually changes, not to the enclosing
+   function.
+2. **The art is often authored across both screens.** The montage shots are
+   single 256x512 images that the game splits by scrolling each engine to its own
+   band (`ov77_021D3DC4`). Stacking the engines at half scale reassembles the
+   original picture rather than juxtaposing two unrelated ones.
+3. **Moving a whole engine moves its background too.** To lift just the GAME
+   FREAK logo, the fix was `Bg_SetOffset` on that one BG layer — shifting the
+   engine would have dragged the full-screen background and its side borders
+   along with it and left a black band.
+
+Extracting the NARCs and rendering the layers to PNG was far more reliable than
+reading the layer-loading code, and is worth doing first for any scene: it turns
+"which engine has the text" from a guess into a fact.
 
 ## Rolling this out to other screens
 
@@ -187,12 +242,13 @@ For each of the remaining `src/applications/` screens:
 
 ## Known limitations / follow-ups
 
-- The overlay order (Engine A = base, Engine B = overlay) is
-  currently fixed by draw order. A screen that wants the opposite (2D base,
-  3D overlay) isn't supported yet; `swapScreens` no longer affects
-  `main_only`'s vertex data since both halves are always present in the
-  composite quad; it would need to be repurposed if that flexibility is
-  needed later.
+- Which engine is the base is chosen by the `cutout` flags rather than fixed,
+  so either engine can sit underneath. `swapScreens` no longer affects
+  `main_only`'s vertex data, since both halves are always present in the
+  composite quad; it would need repurposing if it were wanted again.
+- Placements are global state written from the game thread and read from the
+  render thread. In practice they change only at scene transitions, so a torn
+  read would cost at most one frame, but it is unsynchronised.
 - No visual regression testing exists for this — verification so far is
   "builds cleanly, runs without crashing, `main_only` renders `DbgLog.txt`
   with no errors." Actual pixel-level correctness needs to be checked on a

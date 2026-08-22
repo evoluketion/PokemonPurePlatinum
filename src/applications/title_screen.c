@@ -335,15 +335,28 @@ static BOOL TitleScreen_Init(ApplicationManager *appMan, int *unused)
     GX_SetVisiblePlane(0);
     GXS_SetVisiblePlane(0);
 
-    // Shrink the logo/press-start overlay and move it into the black space on
-    // the left of the Giratina scene in main_only single-screen mode. No
-    // effect in other layouts.
-    SIM_SetMainOnlyOverlayTransform(0.5f, 0.235f, 0.55f);
+    // In main_only single-screen mode the SUB engine carries the logo and
+    // press-start prompt, overlaid on the MAIN engine's Giratina scene. Shrink
+    // that overlay to half size and move it into the black space on the left of
+    // the scene. defringe strips the white matte baked into the logo art from
+    // being anti-aliased against its (now hidden) light backdrop, which would
+    // otherwise halo against the dark scene. No effect in other layouts.
+    {
+        SIM_MainOnlyPlacement logoOverlay = {
+            .centerX = 0.235f,
+            .centerY = 0.55f,
+            .width = 0.5f,
+            .height = 0.5f,
+            .srcCenterX = 0.5f,
+            .srcCenterY = 0.5f,
+            .srcWidth = 1.0f,
+            .srcHeight = 1.0f,
+            .cutout = TRUE,
+            .defringe = TRUE,
+        };
 
-    // The logo art carries a baked-in white matte from being anti-aliased
-    // against its (now hidden) light backdrop, which halos over the dark
-    // Giratina scene. Strip it.
-    SIM_SetMainOnlyOverlayDefringe(TRUE);
+        SIM_SetMainOnlyPlacement(TRUE, &logoOverlay);
+    }
 
     SetAutorepeat(4, 8);
 
@@ -484,9 +497,8 @@ static BOOL TitleScreen_Exit(ApplicationManager *appMan, int *state)
     enum HeapID heapID = appData->heapID;
     enum TitleScreenNextApp nextApp = appData->nextApp;
 
-    // Reset so later screens aren't left with the title screen's overlay transform.
-    SIM_SetMainOnlyOverlayTransform(1.0f, 0.5f, 0.5f);
-    SIM_SetMainOnlyOverlayDefringe(FALSE);
+    // Reset so later screens aren't left with the title screen's framing.
+    SIM_ResetMainOnlyPlacements();
 
     SetVBlankCallback(NULL, NULL);
 
