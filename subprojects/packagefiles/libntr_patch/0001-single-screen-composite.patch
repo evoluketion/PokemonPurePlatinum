@@ -137,13 +137,13 @@ index f6e6922..f295c47 100644
  }
  
 diff --git a/libraries/sim/src/shaders/g2_fragment.glsl b/libraries/sim/src/shaders/g2_fragment.glsl
-index b652bd5..8f607fc 100644
+index b652bd5..796793a 100644
 --- a/libraries/sim/src/shaders/g2_fragment.glsl
 +++ b/libraries/sim/src/shaders/g2_fragment.glsl
-@@ -14,6 +14,17 @@ uniform int topScreen;
- uniform vec4 backdropColor;
+@@ -15,6 +15,17 @@ uniform vec4 backdropColor;
  uniform int dispcnt;
  uniform int winout;
+ uniform int bg0as3d;
 +uniform int transparentBackdrop;
 +uniform float placeCenterX;
 +uniform float placeCenterY;
@@ -155,23 +155,23 @@ index b652bd5..8f607fc 100644
 +uniform float srcCenterY;
 +uniform float srcWidth;
 +uniform float srcHeight;
- uniform int bg0as3d;
  
  smooth in vec2 fragTexCoord;
-@@ -25,6 +36,9 @@ void main()
- {
+ //uniform float inAlpha;
+@@ -26,6 +37,9 @@ void main()
      int oamsDrawn = 0;
      int currentBgDrawn = 5; // Backdrop
+     bool objWindowEnabled = ((dispcnt >> 15) & 1) == 1;
 +    if(placeHidden == 1) {
 +        discard;
 +    }
-     bool objWindowEnabled = ((dispcnt >> 15) & 1) == 1;
      if(topScreen == 1) {
          if(fragTexCoord.t < 0.5){
-@@ -34,21 +48,51 @@ void main()
-         if(fragTexCoord.t >= 0.5){
+             discard;
+@@ -35,20 +49,50 @@ void main()
              discard;
          }
+     }
 +    vec2 sampleCoord = fragTexCoord;
 +    {
 +        // Map a rectangle of this engine's output onto a rectangle of the
@@ -202,7 +202,6 @@ index b652bd5..8f607fc 100644
 +        sampleCoord.s = srcS;
 +        sampleCoord.t = (topScreen == 1) ? (srcT * 0.5 + 0.5) : (srcT * 0.5);
 +    }
-     }
      for(int i=0; i<4; i++) {
          int bgNum = bgOrder[i];
          int curPrio = bgPriorities[bgNum];
