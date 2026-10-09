@@ -8,7 +8,7 @@ url = https://github.com/cybervisi0n/libntr.git
 # deliberately, re-testing the patch against the new tree when you do.
 revision = 45360b20fa4669c3498dca149c092d23c0b07671
 depth = 1
-directory = NitroSDK-4.2.30001
+directory = libntr
 
 # Single-screen (main_only) composite support lives in the sim layer, which is
 # upstream's code rather than this repo's, so it is carried here as a wrap

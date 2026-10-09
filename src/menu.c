@@ -64,30 +64,22 @@ void Menu_Free(Menu *menu, u8 *outCursorPos)
     Heap_FreeExplicit(menu->heapID, menu);
 }
 
-#ifdef SDK_BUILD_ARM
-u32 Menu_ProcessInput(Menu *menu)
-#else
-u64 Menu_ProcessInput(Menu *menu)
-#endif
+menu_selection_t Menu_ProcessInput(Menu *menu)
 {
     menu->lastAction = MENU_ACTION_NONE;
 
     if (JOY_NEW(PAD_BUTTON_A)) {
-        Sound_PlayEffect(SEQ_SE_CONFIRM);
-        #ifdef SDK_BUILD_ARM
-        return menu->template.choices[menu->cursorPos].callbackFunction;
-        #else
-        return (u64)menu->template.choices[menu->cursorPos].callbackFunction;
-        #endif
+        Sound_PlayEffect(SE_CONFIRM_sseq_3);
+        return (menu_selection_t)menu->template.choices[menu->cursorPos].callbackFunction;
     }
 
     if (JOY_NEW(menu->cancelKeys)) {
-        Sound_PlayEffect(SEQ_SE_CONFIRM);
+        Sound_PlayEffect(SE_CONFIRM_sseq_3);
         return MENU_CANCEL;
     }
 
     if (JOY_NEW(PAD_KEY_UP)) {
-        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_UP, SEQ_SE_CONFIRM) == TRUE) {
+        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_UP, SE_CONFIRM_sseq_3) == TRUE) {
             menu->lastAction = MENU_ACTION_MOVE_UP;
         }
 
@@ -95,7 +87,7 @@ u64 Menu_ProcessInput(Menu *menu)
     }
 
     if (JOY_NEW(PAD_KEY_DOWN)) {
-        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_DOWN, SEQ_SE_CONFIRM) == TRUE) {
+        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_DOWN, SE_CONFIRM_sseq_3) == TRUE) {
             menu->lastAction = MENU_ACTION_MOVE_DOWN;
         }
 
@@ -103,7 +95,7 @@ u64 Menu_ProcessInput(Menu *menu)
     }
 
     if (JOY_NEW(PAD_KEY_LEFT)) {
-        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_LEFT, SEQ_SE_CONFIRM) == TRUE) {
+        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_LEFT, SE_CONFIRM_sseq_3) == TRUE) {
             menu->lastAction = MENU_ACTION_MOVE_LEFT;
         }
 
@@ -111,7 +103,7 @@ u64 Menu_ProcessInput(Menu *menu)
     }
 
     if (JOY_NEW(PAD_KEY_RIGHT)) {
-        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_RIGHT, SEQ_SE_CONFIRM) == TRUE) {
+        if (TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_RIGHT, SE_CONFIRM_sseq_3) == TRUE) {
             menu->lastAction = MENU_ACTION_MOVE_RIGHT;
         }
 
@@ -121,21 +113,17 @@ u64 Menu_ProcessInput(Menu *menu)
     return MENU_NOTHING_CHOSEN;
 }
 
-#ifdef SDK_BUILD_ARM
-u32 Menu_ProcessInputWithSound(Menu *menu, u16 sdatID)
-#else
-u64 Menu_ProcessInputWithSound(Menu *menu, u16 sdatID)
-#endif
+menu_selection_t Menu_ProcessInputWithSound(Menu *menu, u16 sdatID)
 {
     menu->lastAction = MENU_ACTION_NONE;
 
     if (JOY_NEW(PAD_BUTTON_A)) {
-        Sound_PlayEffect(SEQ_SE_CONFIRM);
+        Sound_PlayEffect(SE_CONFIRM_sseq_3);
         return menu->template.choices[menu->cursorPos].index;
     }
 
     if (JOY_NEW(menu->cancelKeys)) {
-        Sound_PlayEffect(SEQ_SE_CONFIRM);
+        Sound_PlayEffect(SE_CONFIRM_sseq_3);
         return MENU_CANCEL;
     }
 
@@ -174,35 +162,31 @@ u64 Menu_ProcessInputWithSound(Menu *menu, u16 sdatID)
     return MENU_NOTHING_CHOSEN;
 }
 
-#ifdef SDK_BUILD_ARM
-u32 Menu_ProcessExternalInput(Menu *menu, u8 input)
-#else
-u64 Menu_ProcessExternalInput(Menu *menu, u8 input)
-#endif
+menu_selection_t Menu_ProcessExternalInput(Menu *menu, u8 input)
 {
     switch (input) {
     case MENU_INPUT_CONFIRM:
-        Sound_PlayEffect(SEQ_SE_CONFIRM);
+        Sound_PlayEffect(SE_CONFIRM_sseq_3);
         return menu->template.choices[menu->cursorPos].index;
 
     case MENU_INPUT_CANCEL:
-        Sound_PlayEffect(SEQ_SE_CONFIRM);
+        Sound_PlayEffect(SE_CONFIRM_sseq_3);
         return MENU_CANCEL;
 
     case MENU_INPUT_MOVE_UP:
-        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_UP, SEQ_SE_CONFIRM);
+        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_UP, SE_CONFIRM_sseq_3);
         return MENU_NOTHING_CHOSEN;
 
     case MENU_INPUT_MOVE_DOWN:
-        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_DOWN, SEQ_SE_CONFIRM);
+        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_DOWN, SE_CONFIRM_sseq_3);
         return MENU_NOTHING_CHOSEN;
 
     case MENU_INPUT_MOVE_LEFT:
-        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_LEFT, SEQ_SE_CONFIRM);
+        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_LEFT, SE_CONFIRM_sseq_3);
         return MENU_NOTHING_CHOSEN;
 
     case MENU_INPUT_MOVE_RIGHT:
-        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_RIGHT, SEQ_SE_CONFIRM);
+        TryMovingCursorAndPlaySound(menu, SCROLL_DIRECTION_RIGHT, SE_CONFIRM_sseq_3);
         return MENU_NOTHING_CHOSEN;
     }
 
@@ -394,17 +378,9 @@ Menu *Menu_MakeYesNoChoice(BgConfig *bgConfig, const WindowTemplate *winTemplate
     return Menu_MakeYesNoChoiceWithCursorAt(bgConfig, winTemplate, borderTileStart, borderPalette, 0, heapID);
 }
 
-#ifdef SDK_BUILD_ARM
-u32 Menu_ProcessInputAndHandleExit(Menu *menu, u32 heapID)
-#else
-u64 Menu_ProcessInputAndHandleExit(Menu *menu, u32 heapID)
-#endif
+menu_selection_t Menu_ProcessInputAndHandleExit(Menu *menu, u32 heapID)
 {
-    #ifdef SDK_BUILD_ARM
-    u32 result = Menu_ProcessInput(menu);
-    #else
-    u64 result = Menu_ProcessInput(menu);
-    #endif
+    menu_selection_t result = Menu_ProcessInput(menu);
     if (result != MENU_NOTHING_CHOSEN) {
         Menu_DestroyForExit(menu, heapID);
     }
@@ -412,17 +388,9 @@ u64 Menu_ProcessInputAndHandleExit(Menu *menu, u32 heapID)
     return result;
 }
 
-#ifdef SDK_BUILD_ARM
-u32 Menu_ProcessExternalInputAndHandleExit(Menu *menu, u8 input, u32 heapID)
-#else
-u64 Menu_ProcessExternalInputAndHandleExit(Menu *menu, u8 input, u32 heapID)
-#endif
+menu_selection_t Menu_ProcessExternalInputAndHandleExit(Menu *menu, u8 input, u32 heapID)
 {
-    #ifdef SDK_BUILD_ARM
-    u32 result = Menu_ProcessExternalInput(menu, input);
-    #else
-    u64 result = Menu_ProcessExternalInput(menu, input);
-    #endif
+    menu_selection_t result = Menu_ProcessExternalInput(menu, input);
     if (result != MENU_NOTHING_CHOSEN) {
         Menu_DestroyForExit(menu, heapID);
     }

@@ -12,16 +12,19 @@
 /metroskrew-*.7z
 
 # Subproject folders
-/subprojects/libvct-*/
+/subprojects/libvct/
 /subprojects/NitroDWC-*/
 /subprojects/NitroSDK-*/
 /subprojects/NitroSystem-*/
 /subprojects/NitroWiFi-*/
+/subprojects/libntr/
+/subprojects/libntrsystem/
+/subprojects/libntrwifi/
+/subprojects/libntrdwc/
 /subprojects/nitrogfx/
 /subprojects/libpng-*/
 /subprojects/zlib-*/
 /subprojects/packagecache
-/subprojects/SDATTool/
 /subprojects/metang/
 /subprojects/rapidjson-*/
 /subprojects/meson-*/
@@ -122,6 +125,8 @@ __pycache__
 .python-version
 
 compile_commands.json
+
+.vscode/settings.json
 
 # Save files
 *.dsv

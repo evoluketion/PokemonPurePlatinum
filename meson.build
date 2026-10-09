@@ -1,6 +1,6 @@
 project('pokeplatinum', ['c', 'cpp', 'nasm'],
     version: '1.0',
-    meson_version: '>=1.10.0',
+    meson_version: '>=1.12.0',
     default_options : [
         'buildtype=plain',
         'warning_level=0'
@@ -13,7 +13,7 @@ build_target = get_option('build_target')
 ############################################################
 ###                    INCLUDE PATHS                     ###
 ############################################################
-public_includes = include_directories('include', 'asm', 'res')
+public_includes = include_directories('include', 'asm')
 toplevel_includes = include_directories('.')
 
 
@@ -180,6 +180,12 @@ endif
 ############################################################
 ###                     DEPENDENCIES                     ###
 ############################################################
+libntr_prj = subproject('libntr',
+    default_options: [
+        'card_game_code=CPUE',
+        'card_maker_code=01'
+    ])
+
 nitrosdk_dep = dependency('NitroSDK',
     default_options: {
         'mwrap_sdk': '2.0/sp1p2',
@@ -519,11 +525,8 @@ endif
 ############################################################
 ###                    ARM7 BINARIES                     ###
 ############################################################
-ichneumon_sub = subproject('libntr'
-    ).get_variable('ichneumon_sub')
-
-ichneumon_sub_defs = subproject('libntr'
-    ).get_variable('ichneumon_sub_defs')
+ichneumon_sub = subproject('libntr').get_variable('ichneumon_sub')
+ichneumon_sub_defs = []
 
 
 ############################################################
@@ -537,7 +540,6 @@ pokeplatinum_nds = custom_target('pokeplatinum.us.nds',
         rom_header_template,
         icon_png,
         ichneumon_sub,
-        ichneumon_sub_defs,
         nitrofs_files,
     ],
     command : [
@@ -545,8 +547,7 @@ pokeplatinum_nds = custom_target('pokeplatinum.us.nds',
         'pack',
         '-DHEADER_TEMPLATE=@INPUT1@', # rom_header_template
         '-DICON_PNG=@INPUT2@',        # icon_png
-        '-DARM7_STATIC=@INPUT3@',     # ichneumon_sub
-        '-DARM7_DEFINE=@INPUT4@',     # ichneumon_sub_defs
+        '-DARM7_NEF=@INPUT3@',        # ichneumon_sub
         '--output=@OUTPUT0@',         # pokeplatinum.us.nds
         rom_ini,
         filesys_csv,
@@ -640,6 +641,11 @@ test('SBIN Checksums - Shared',
 test('SBIN Checksums - For Revision',
     sha1sum,
     args: ['-c', '--quiet', sbins_for_rev_sha1]
+)
+
+test('SBIN Checksums - ARM7',
+    sha1sum,
+    args: ['-c', '--quiet', sbins_arm7_sha1]
 )
 
 test('Filesystem Checksums',

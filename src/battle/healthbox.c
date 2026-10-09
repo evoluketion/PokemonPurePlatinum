@@ -10,7 +10,6 @@
 #include "constants/string.h"
 
 #include "battle/battle_system.h"
-#include "graphics/battle/sprites.naix"
 
 #include "assert.h"
 #include "bg_window.h"
@@ -31,6 +30,7 @@
 #include "text.h"
 #include "unk_0208C098.h"
 
+#include "res/graphics/battle/sprites.naix"
 #include "res/text/bank/battle_strings.h"
 
 #define HEALTHBOX_SCROLL_SPEED      24
@@ -1660,6 +1660,16 @@ static u8 FillCells(s32 max, s32 cur, s32 diff, s32 *temp, u8 *cells, u8 cellNum
     u32 offset, pixels, final;
     s32 updated = cur - diff;
 
+    #ifdef SDK_PORT
+    if(!temp || !cells) {
+        return 0;
+    }
+
+    if(max == 0) {
+        max = 1;
+    }
+    #endif
+
     if (updated < 0) {
         updated = 0;
     } else if (updated > max) {
@@ -1718,6 +1728,12 @@ static u32 CalcGaugeFill(s32 curVal, s32 diff, s32 maxVal, u8 gaugeSize)
     } else if (newVal > maxVal) {
         newVal = maxVal;
     }
+
+    #ifdef SDK_PORT
+    if(maxVal == 0) {
+        maxVal = 1;
+    }
+    #endif
 
     s8 curPixels = curVal * gaugeSizePixels / maxVal;
     s8 newPixels = newVal * gaugeSizePixels / maxVal;
@@ -1863,7 +1879,7 @@ static void Healthbox_Task_LevelUpFlashAnimation(SysTask *task, void *param1)
             flashState->state++;
         }
 
-        PaletteData_Blend(paletteData, 2, flashState->paletteOffset * 16 + 0, 16, flashState->blendIntensity, 0x73a5);
+        PaletteData_Blend(paletteData, PLTTBUF_MAIN_OBJ, flashState->paletteOffset * PALETTE_SIZE, 16, flashState->blendIntensity, 0x73a5);
         break;
     case 2:
         flashState->blendIntensity -= 2;
@@ -1873,7 +1889,7 @@ static void Healthbox_Task_LevelUpFlashAnimation(SysTask *task, void *param1)
             flashState->state++;
         }
 
-        PaletteData_Blend(paletteData, 2, flashState->paletteOffset * 16 + 0, 16, flashState->blendIntensity, 0x73a5);
+        PaletteData_Blend(paletteData, PLTTBUF_MAIN_OBJ, flashState->paletteOffset * PALETTE_SIZE, 16, flashState->blendIntensity, 0x73a5);
         break;
     default:
         plttOffset = SpriteManager_FindPlttResourceOffset(spriteManager, HEALTHBOX_MAIN_PALETTE_RESID, NNS_G2D_VRAM_TYPE_2DMAIN);

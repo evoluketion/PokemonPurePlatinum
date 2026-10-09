@@ -3,6 +3,10 @@
 
 #include <nitro/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     BOOL enable60fps; // When true, unlock the framerate to 60fps
     BOOL enable60fpsSpeedFix; // When enabled, fixes things in the game that run at double speed due to being at 60fps
@@ -20,5 +24,9 @@ BOOL SIM_Config_prj_LoadConfigFile(SIM_Config_prj_type * aConfig);
 void SIM_Config_prj_SaveConfigFile(SIM_Config_prj_type * aConfig);
 void SIM_Config_prj_init();
 SIM_Config_prj_type * SIM_Config_prj_GetConfig();
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif

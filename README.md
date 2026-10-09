@@ -1,10 +1,12 @@
 # Pokémon Platinum PC Port
 
-This is an experimental PC port of Pokemon Platinum based on the [pret](https://github.com/pret/pokeplatinum) decompilation project. It is powered by the [libntr](https://github.com/cybervisi0n/libntr) suite, a collection of libraries that replace the NitroSDK to allow for easy porting of Nintendo DS games.
+This is an experimental PC port of Pokemon Platinum based on the [pret](https://github.com/pret/pokeplatinum) decompilation project. It is powered by the [libntr](https://github.com/cybervisi0n/libntr) suite, a collection of libraries that replace the NitroSDK to allow for easy porting of Nintendo DS titles.
 
-Join us on [Discord](https://discord.gg/ZgtPszuBeN)
+Feel free to join us on [Discord](https://discord.gg/ZgtPszuBeN) for discussion or support.
 
 It should be possible to play the game from start to finish, but there could be crashes and graphical bugs. 
+
+Generative AI/LLM shortcuts were **not** used in the creation of this project and the libntr libraries. **Pull requests or code suggestions using AI will be rejected.**
 
 Project goals:
 * Create a native port of pokeplatinum for 64-bit PC platforms
@@ -12,14 +14,28 @@ Project goals:
 * Facilitate modding by allowing both a PC port and DS ROM to be compiled and debugged from the same source tree
 * Support all WiFi and multiplayer features
 
-## Setup Guide (Windows)
-To run the pre-built binaries found in the releases tab, **you MUST dump and extract your own US ROM of Pokémon Platinum.**
-* Download the latest release from the releases tab, and extract the contents to a new folder on your PC. This contains **main.exe,** which is used to run the game.
-* Download [the latest release of Tinke](https://github.com/pleonex/tinke/releases/download/v0.9.2/Tinke-v0.9.2.zip).
-* Run Tinke, then select your own ROM of Pokémon Platinum.
-* In the file tree that appears, click the **root** folder, then hit **Extract** at the bottom right to dump Platinum's files to any location on your PC, which should be labeled **root**.
-* Take everything in that newly created **root** folder (note, not the **root** folder itself, just its contents) and copy it into the folder with **main.exe**.
-* Run **main.exe** and you're good to go!
+## Setup Guide
+To run the [pre-built binaries found in the releases tab](https://github.com/cybervisi0n/pokeplatinum/releases), **you MUST dump and provide your own US ROM of Pokémon Platinum (CPUE01).** On first launch, you will be prompted to select your .nds ROM file as seen in the images below:
+
+![ROM extraction dialog](images/RomExtraction.png)
+
+* After this has been completed once, you can launch the game simply by running main.exe.
+* Access in-game settings and debug tools by pressing the grave accent/tilde key
+
+### Playing in other languages
+Currently, this project only supports the USA version of the game, however, it is possible to change the language of the majority of the in-game text by replacing some files. 
+Once a ROM has been loaded, its contents will be extracted in the same directory as main.exe. Replace the following files with copies from another language:
+
+ * msgdata/msg.narc
+ * msgdata/pl_msg.narc
+ * msgdata/scenario/scr_msg.narc
+
+## Forking Guidelines
+You are welcome to create forks of this project, but do not publish any releases containing the compiled assets alongside PC port binaries.
+
+If you publish releases, you are responsible for also complying with the MIT license on libntr by including the copyright and disclaimer.
+
+cybervisi0n is not affiliated with any forks of this project.
 
 ## Building on Linux
 ### Dockerized build (Recommended)
