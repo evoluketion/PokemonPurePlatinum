@@ -1,5 +1,5 @@
 diff --git a/include/simulator/config/sim_config.h b/include/simulator/config/sim_config.h
-index 8db60e5..f98ebb8 100644
+index 7d69fe7..c0471e9 100644
 --- a/include/simulator/config/sim_config.h
 +++ b/include/simulator/config/sim_config.h
 @@ -6,7 +6,8 @@
@@ -13,12 +13,12 @@ index 8db60e5..f98ebb8 100644
  
  #define SIM_CONFIG_JOY_HAT_MASK (0x10000)
 diff --git a/include/simulator/sim.h b/include/simulator/sim.h
-index 5f8826c..1fb4a20 100644
+index 43f57f1..c7b2725 100644
 --- a/include/simulator/sim.h
 +++ b/include/simulator/sim.h
-@@ -67,6 +67,81 @@ void * SIM_sndAlarm(void * arg);
- void SIM_u16ToRGB( u16 in, u8 * r, u8 *g, u8 * b );
- SIM_config_type * SIM_GetConfigPtr();
+@@ -77,6 +77,81 @@ u64 SIM_GetFullFrameTime();
+ const char * SIM_GetLibntrGitHash();
+ const char * SIM_GetProjectGitHash();
  
 +// Where one engine's output lands inside the window, and how it blends there,
 +// under the composited single-screen layout (sim_config's
@@ -98,11 +98,23 @@ index 5f8826c..1fb4a20 100644
  extern GXVRamTex s_SIM_GXVRamTex;
  extern GXVRamTexPltt s_SIM_GXVRamTexPltt;
  extern GXVRamBGExtPltt s_SIM_GXBgExtPltt;
+diff --git a/libraries/sim/include/gui_internal.hpp b/libraries/sim/include/gui_internal.hpp
+index 0ffc13b..60a7537 100644
+--- a/libraries/sim/include/gui_internal.hpp
++++ b/libraries/sim/include/gui_internal.hpp
+@@ -8,6 +8,7 @@ void AppNetInit();
+ void AppNetMain(bool * openState);
+ void AppPadInit();
+ void AppPadMain(bool * openState);
++void AppPlacementMain(bool * openState);
+ 
+ }
+ 
 diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
-index b5bbc92..fe7bb32 100644
+index f6e6922..f295c47 100644
 --- a/libraries/sim/src/config/sim_config.c
 +++ b/libraries/sim/src/config/sim_config.c
-@@ -293,6 +293,9 @@ static const char * ScreenLayoutTypeToString(SIM_config_screen_layout_type layou
+@@ -305,6 +305,9 @@ static const char * ScreenLayoutTypeToString(SIM_config_screen_layout_type layou
          case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
              ret = "large";
              break;
@@ -112,7 +124,7 @@ index b5bbc92..fe7bb32 100644
      }
      return ret;
  }
-@@ -307,8 +310,10 @@ static SIM_config_screen_layout_type StringToScreenLayoutType(const char * str)
+@@ -319,8 +322,10 @@ static SIM_config_screen_layout_type StringToScreenLayoutType(const char * str)
          ret = SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL;
      } else if (strcmp(str, "large") == 0) {
          ret = SIM_CONFIG_SCREEN_LAYOUT_LARGE;
@@ -124,275 +136,267 @@ index b5bbc92..fe7bb32 100644
      return ret;
  }
  
-diff --git a/libraries/sim/src/g3_shader.c b/libraries/sim/src/g3_shader.c
-index 02e0402..001462f 100644
---- a/libraries/sim/src/g3_shader.c
-+++ b/libraries/sim/src/g3_shader.c
-@@ -108,6 +108,17 @@ uniform vec4 backdropColor;\n\
- uniform int dispcnt;\n\
- uniform int winout;\n\
- uniform int bg0as3d;\n\
-+uniform int transparentBackdrop;\n\
-+uniform float placeCenterX;\n\
-+uniform float placeCenterY;\n\
-+uniform float placeWidth;\n\
-+uniform float placeHeight;\n\
-+uniform int placeDefringe;\n\
-+uniform int placeHidden;\n\
-+uniform float srcCenterX;\n\
-+uniform float srcCenterY;\n\
-+uniform float srcWidth;\n\
-+uniform float srcHeight;\n\
- \n\
- smooth in vec2 fragTexCoord;\n\
- //uniform float inAlpha;\n\
-@@ -119,6 +130,9 @@ void main()\n\
-     int oamsDrawn = 0;\n\
-     int currentBgDrawn = 5; // Backdrop\n\
-     bool objWindowEnabled = ((dispcnt >> 15) & 1) == 1;\n\
-+    if(placeHidden == 1) {\n\
-+        discard;\n\
-+    }\n\
-     if(topScreen == 1) {\n\
-         if(fragTexCoord.t < 0.5){\n\
-             discard;\n\
-@@ -128,20 +142,50 @@ void main()\n\
-             discard;\n\
-         }\n\
-     }\n\
-+    vec2 sampleCoord = fragTexCoord;\n\
-+    {\n\
-+        // Map a rectangle of this engine's output onto a rectangle of the\n\
-+        // window. The source rect (srcCenterX/Y, srcWidth/Height) picks how much\n\
-+        // of the engine to show, which is what lets a caller crop away the black\n\
-+        // letterboxing a scene renders around its picture; the destination rect\n\
-+        // (placeCenterX/Y, placeWidth/Height) says where in the window it lands.\n\
-+        // Both default to the full unit square, so the identity case costs a few\n\
-+        // exact-arithmetic ops and changes nothing.\n\
-+        //\n\
-+        // Fragments outside the destination rect are discarded, falling through\n\
-+        // to whatever an earlier pass drew or to the cleared background - which\n\
-+        // is what produces the bars when two engines are placed into\n\
-+        // non-overlapping rects.\n\
-+        float localT = (topScreen == 1) ? (fragTexCoord.t - 0.5) * 2.0 : fragTexCoord.t * 2.0;\n\
-+        float localS = fragTexCoord.s;\n\
-+        float loS = placeCenterX - placeWidth * 0.5;\n\
-+        float hiS = placeCenterX + placeWidth * 0.5;\n\
-+        float loT = placeCenterY - placeHeight * 0.5;\n\
-+        float hiT = placeCenterY + placeHeight * 0.5;\n\
-+        if(localS < loS || localS > hiS || localT < loT || localT > hiT) {\n\
-+            discard;\n\
-+        }\n\
-+        float destS = (localS - loS) / placeWidth;\n\
-+        float destT = (localT - loT) / placeHeight;\n\
-+        float srcS = (srcCenterX - srcWidth * 0.5) + destS * srcWidth;\n\
-+        float srcT = (srcCenterY - srcHeight * 0.5) + destT * srcHeight;\n\
-+        sampleCoord.s = srcS;\n\
-+        sampleCoord.t = (topScreen == 1) ? (srcT * 0.5 + 0.5) : (srcT * 0.5);\n\
-+    }\n\
-     for(int i=0; i<4; i++) {\n\
-         int bgNum = bgOrder[i];\n\
-         int curPrio = bgPriorities[bgNum];\n\
-         // Draw the OBJs that are at or below the current BG priority\n\
-         for(int j=3-oamsDrawn; j>curPrio; j--) {\n\
--            if(texture(objTexture[j], fragTexCoord).a > 0.1) {\n\
--                color = texture(objTexture[j], fragTexCoord);\n\
-+            if(texture(objTexture[j], sampleCoord).a > 0.1) {\n\
-+                color = texture(objTexture[j], sampleCoord);\n\
-                 currentBgDrawn = 4;\n\
-             }\n\
-             oamsDrawn++;\n\
-         }\n\
-         \n\
-         // Check obj window\n\
--        if(objWindowEnabled && texture(objWindowTexture, fragTexCoord).a > 0.1)\n\
-+        if(objWindowEnabled && texture(objWindowTexture, sampleCoord).a > 0.1)\n\
-         {\n\
-             // Inside the window\n\
-             if(((winout >> (bgNum+8)) & 1) == 0) {\n\
-@@ -154,59 +198,59 @@ void main()\n\
-             }\n\
-         }\n\
-         // Draw the current bg\n\
--        if(texture(bgTexture[bgNum], fragTexCoord).a > 0.1) {\n\
-+        if(texture(bgTexture[bgNum], sampleCoord).a > 0.1) {\n\
-             //Handle blending\n\
-             if( (((bldcnt >> 6) & 0x3) == 1) && ((bldcnt >> bgNum & 1) == 1) ){\n\
-                 // Alpha Blending Mode. bgNum is Target 1.\n\
-                 float alphaA = min(16.0, float(bldalpha & 31)) / 16.0;\n\
-                 float alphaB = min(16.0, float((bldalpha >> 8) & 31)) / 16.0;\n\
-                 if(bgNum == 0 && bg0as3d != 0) {\n\
--                    alphaA = texture(bgTexture[0], fragTexCoord).a;\n\
-+                    alphaA = texture(bgTexture[0], sampleCoord).a;\n\
-                     alphaB = 1.0 - alphaA;\n\
-                 }\n\
-                 if((currentBgDrawn < 4) && (((bldcnt >> (8+currentBgDrawn)) & 1) == 1) ) {\n\
--                    color.r = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).r *alphaA) + (texture(bgTexture[currentBgDrawn], fragTexCoord).r * alphaB)));\n\
--                    color.g = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).g *alphaA) + (texture(bgTexture[currentBgDrawn], fragTexCoord).g * alphaB)));\n\
--                    color.b = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).b *alphaA) + (texture(bgTexture[currentBgDrawn], fragTexCoord).b * alphaB)));\n\
-+                    color.r = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).r *alphaA) + (texture(bgTexture[currentBgDrawn], sampleCoord).r * alphaB)));\n\
-+                    color.g = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).g *alphaA) + (texture(bgTexture[currentBgDrawn], sampleCoord).g * alphaB)));\n\
-+                    color.b = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).b *alphaA) + (texture(bgTexture[currentBgDrawn], sampleCoord).b * alphaB)));\n\
-                     color.a = 1.0;\n\
-                     currentBgDrawn = bgNum;\n\
-                 } else if( (currentBgDrawn == 4) && ( ( (bldcnt >> (8+currentBgDrawn)) & 1) == 1) ){\n\
-                     // Alpha blending where the highest OBJ pixel is the target\n\
--                    color.r = min(1.0, ( (texture(bgTexture[bgNum], fragTexCoord).r *alphaA) + color.r * alphaB) );\n\
--                    color.g = min(1.0, ( (texture(bgTexture[bgNum], fragTexCoord).g *alphaA) + color.g * alphaB) );\n\
--                    color.b = min(1.0, ( (texture(bgTexture[bgNum], fragTexCoord).b *alphaA) + color.b * alphaB) );\n\
-+                    color.r = min(1.0, ( (texture(bgTexture[bgNum], sampleCoord).r *alphaA) + color.r * alphaB) );\n\
-+                    color.g = min(1.0, ( (texture(bgTexture[bgNum], sampleCoord).g *alphaA) + color.g * alphaB) );\n\
-+                    color.b = min(1.0, ( (texture(bgTexture[bgNum], sampleCoord).b *alphaA) + color.b * alphaB) );\n\
-                     color.a = 1.0;\n\
-                 } else if((currentBgDrawn == 5) && (((bldcnt >> (8+currentBgDrawn)) & 1) == 1)) {\n\
-                     // Alpha blending where the backdrop is the target\n\
--                    color.r = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).r *alphaA) + backdropColor.r * alphaB));\n\
--                    color.g = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).g *alphaA) + backdropColor.g * alphaB));\n\
--                    color.b = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).b *alphaA) + backdropColor.b * alphaB));\n\
-+                    color.r = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).r *alphaA) + backdropColor.r * alphaB));\n\
-+                    color.g = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).g *alphaA) + backdropColor.g * alphaB));\n\
-+                    color.b = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).b *alphaA) + backdropColor.b * alphaB));\n\
-                     color.a = 1.0;\n\
-                 } else {\n\
--                    color = texture(bgTexture[bgNum], fragTexCoord);\n\
-+                    color = texture(bgTexture[bgNum], sampleCoord);\n\
-                     currentBgDrawn = bgNum;\n\
-                 }\n\
-             } else if((((bldcnt >> 6) & 0x3) == 2) && ((bldcnt >> bgNum & 1) == 1)) {\n\
-                 // Brightness Increase Mode. bgNum is Target 1.\n\
-                 float brightFactor = min(16.0, float(bldy & 31)) / 16.0;\n\
--                //color.r = min(1.0, ( texture(bgTexture[bgNum], fragTexCoord).r + ((1.0 - texture(bgTexture[bgNum], fragTexCoord).r)*brightFactor)) );\n\
--                //color.g = min(1.0, ( texture(bgTexture[bgNum], fragTexCoord).g + ((1.0 - texture(bgTexture[bgNum], fragTexCoord).g)*brightFactor)) );\n\
--                //color.b = min(1.0, ( texture(bgTexture[bgNum], fragTexCoord).b + ((1.0 - texture(bgTexture[bgNum], fragTexCoord).b)*brightFactor)) );\n\
--                color.r = texture(bgTexture[bgNum], fragTexCoord).r + (1.0 - texture(bgTexture[bgNum], fragTexCoord).r)*brightFactor;\n\
--                color.g = texture(bgTexture[bgNum], fragTexCoord).g + (1.0 - texture(bgTexture[bgNum], fragTexCoord).g)*brightFactor;\n\
--                color.b = texture(bgTexture[bgNum], fragTexCoord).b + (1.0 - texture(bgTexture[bgNum], fragTexCoord).b)*brightFactor;\n\
-+                //color.r = min(1.0, ( texture(bgTexture[bgNum], sampleCoord).r + ((1.0 - texture(bgTexture[bgNum], sampleCoord).r)*brightFactor)) );\n\
-+                //color.g = min(1.0, ( texture(bgTexture[bgNum], sampleCoord).g + ((1.0 - texture(bgTexture[bgNum], sampleCoord).g)*brightFactor)) );\n\
-+                //color.b = min(1.0, ( texture(bgTexture[bgNum], sampleCoord).b + ((1.0 - texture(bgTexture[bgNum], sampleCoord).b)*brightFactor)) );\n\
-+                color.r = texture(bgTexture[bgNum], sampleCoord).r + (1.0 - texture(bgTexture[bgNum], sampleCoord).r)*brightFactor;\n\
-+                color.g = texture(bgTexture[bgNum], sampleCoord).g + (1.0 - texture(bgTexture[bgNum], sampleCoord).g)*brightFactor;\n\
-+                color.b = texture(bgTexture[bgNum], sampleCoord).b + (1.0 - texture(bgTexture[bgNum], sampleCoord).b)*brightFactor;\n\
-                 color.a = 1.0;\n\
-                 currentBgDrawn = bgNum;\n\
-             } else if((((bldcnt >> 6) & 0x3) == 3) && ((bldcnt >> bgNum & 1) == 1)) {\n\
-                 // Brightness Decrease Mode. bgNum is Target 1.\n\
-                 float brightFactor = min(16.0, float(bldy & 31)) / 16.0;\n\
--                color.r = max(0.0, ( texture(bgTexture[bgNum], fragTexCoord).r - ((texture(bgTexture[bgNum], fragTexCoord).r)*brightFactor)) );\n\
--                color.g = max(0.0, ( texture(bgTexture[bgNum], fragTexCoord).g - ((texture(bgTexture[bgNum], fragTexCoord).g)*brightFactor)) );\n\
--                color.b = max(0.0, ( texture(bgTexture[bgNum], fragTexCoord).b - ((texture(bgTexture[bgNum], fragTexCoord).b)*brightFactor)) );\n\
-+                color.r = max(0.0, ( texture(bgTexture[bgNum], sampleCoord).r - ((texture(bgTexture[bgNum], sampleCoord).r)*brightFactor)) );\n\
-+                color.g = max(0.0, ( texture(bgTexture[bgNum], sampleCoord).g - ((texture(bgTexture[bgNum], sampleCoord).g)*brightFactor)) );\n\
-+                color.b = max(0.0, ( texture(bgTexture[bgNum], sampleCoord).b - ((texture(bgTexture[bgNum], sampleCoord).b)*brightFactor)) );\n\
-                 color.a = 1.0;\n\
-                 currentBgDrawn = bgNum;\n\
-             } else {\n\
--                color.rgb = texture(bgTexture[bgNum], fragTexCoord).rgb;\n\
-+                color.rgb = texture(bgTexture[bgNum], sampleCoord).rgb;\n\
-                 color.a = 1.0;\n\
-                 currentBgDrawn = bgNum;\n\
-             }\n\
-@@ -214,13 +258,62 @@ void main()\n\
-     }\n\
-     //Draw the remaining objs\n\
-     for(int i=3-oamsDrawn; i>=0; i--) {\n\
--        if(texture(objTexture[i], fragTexCoord).a > 0.1) {\n\
--            color = texture(objTexture[i], fragTexCoord);\n\
-+        if(texture(objTexture[i], sampleCoord).a > 0.1) {\n\
-+            color = texture(objTexture[i], sampleCoord);\n\
-             currentBgDrawn = 4;\n\
-         }\n\
-     }\n\
-     if(currentBgDrawn == 5) {\n\
--        color = backdropColor;\n\
-+        if(transparentBackdrop == 1) {\n\
-+            color = vec4(0.0, 0.0, 0.0, 0.0);\n\
-+        } else {\n\
-+            color = backdropColor;\n\
-+        }\n\
-+    }\n\
-+    if(placeDefringe == 1 && currentBgDrawn != 5) {\n\
-+        // Much of this game's 2D art was anti-aliased against an opaque light\n\
-+        // background, so silhouette pixels are baked-in near-white blends (a\n\
-+        // white matte). That is invisible on hardware, where the art sits on\n\
-+        // its own light backdrop, but composited over a dark scene in the\n\
-+        // single-screen layout it reads as a white halo. Undo it by treating\n\
-+        // lightness as transparency, but only for pixels on the silhouette\n\
-+        // (touching an undrawn neighbour) and only where the pixel is\n\
-+        // essentially greyscale - so genuine art colors like the logo's yellow\n\
-+        // fill and blue outline keep their full opacity.\n\
-+        // The matte can be several pixels thick, so find how far this pixel is\n\
-+        // from undrawn space and scale the fade by that: the outer shell gets\n\
-+        // it in full, deeper rings progressively less. That tapers the matte\n\
-+        // off smoothly instead of taking a hard bite out of the silhouette.\n\
-+        vec2 texel = 1.0 / vec2(textureSize(bgTexture[0], 0));\n\
-+        int edgeDist = 0;\n\
-+        for(int k=0; k<4; k++) {\n\
-+            vec2 dir = (k==0) ? vec2(1.0, 0.0)\n\
-+                     : (k==1) ? vec2(-1.0, 0.0)\n\
-+                     : (k==2) ? vec2(0.0, 1.0)\n\
-+                              : vec2(0.0, -1.0);\n\
-+            for(int d=1; d<=3; d++) {\n\
-+                vec2 nc = sampleCoord + dir * texel * float(d);\n\
-+                float neighbourAlpha = 0.0;\n\
-+                for(int b=0; b<4; b++) {\n\
-+                    neighbourAlpha = max(neighbourAlpha, texture(bgTexture[b], nc).a);\n\
-+                }\n\
-+                for(int o=0; o<4; o++) {\n\
-+                    neighbourAlpha = max(neighbourAlpha, texture(objTexture[o], nc).a);\n\
-+                }\n\
-+                if(neighbourAlpha <= 0.1 && (edgeDist == 0 || d < edgeDist)) {\n\
-+                    edgeDist = d;\n\
-+                }\n\
-+            }\n\
-+        }\n\
-+        if(edgeDist != 0) {\n\
-+            float mx = max(color.r, max(color.g, color.b));\n\
-+            float mn = min(color.r, min(color.g, color.b));\n\
-+            if((mx - mn) < 0.28) {\n\
-+                float strength = (edgeDist == 1) ? 1.0 : (edgeDist == 2) ? 0.7 : 0.4;\n\
-+                float keep = 1.0 - smoothstep(0.22, 0.88, mx);\n\
-+                color.a *= mix(1.0, keep, strength);\n\
-+            }\n\
-+        }\n\
-     }\n\
-     \n\
-     if(inMasterBrightMode == 1) {\n\
-diff --git a/libraries/sim/src/gui/gui.c b/libraries/sim/src/gui/gui.c
-index 737f716..b1f15cd 100644
---- a/libraries/sim/src/gui/gui.c
-+++ b/libraries/sim/src/gui/gui.c
-@@ -16,6 +16,7 @@ static bool SIM_GUI_State = 0;
+diff --git a/libraries/sim/src/shaders/g2_fragment.glsl b/libraries/sim/src/shaders/g2_fragment.glsl
+index b652bd5..8f607fc 100644
+--- a/libraries/sim/src/shaders/g2_fragment.glsl
++++ b/libraries/sim/src/shaders/g2_fragment.glsl
+@@ -14,6 +14,17 @@ uniform int topScreen;
+ uniform vec4 backdropColor;
+ uniform int dispcnt;
+ uniform int winout;
++uniform int transparentBackdrop;
++uniform float placeCenterX;
++uniform float placeCenterY;
++uniform float placeWidth;
++uniform float placeHeight;
++uniform int placeDefringe;
++uniform int placeHidden;
++uniform float srcCenterX;
++uniform float srcCenterY;
++uniform float srcWidth;
++uniform float srcHeight;
+ uniform int bg0as3d;
  
- static bool s_showWindowConfig = 0;
- static bool s_showWindowG2 = 0;
-+static bool s_showWindowPlacement = false;
- static bool s_showWindowNet = 0;
- static bool s_showWindowPad = 0;
- static bool s_showWindowPrjSpecific = 0;
-@@ -56,6 +57,7 @@ void SIM_GUI_Main(void)
-         SIM_GUI_AppButton("Config", &s_showWindowConfig, NULL, GUI_AppConfigMain);
-         SIM_GUI_AppButton("Input", &s_showWindowPad, NULL, GUI_AppPadMain);
-         SIM_GUI_AppButton("G2", &s_showWindowG2, NULL, GUI_AppG2Main);
-+        SIM_GUI_AppButton("Placement", &s_showWindowPlacement, NULL, GUI_AppPlacementMain);
-         SIM_GUI_AppButton("Net", &s_showWindowNet, GUI_AppNetInit, GUI_AppNetMain);
-         SIM_GUI_AppButton("Imgui Demo", &s_showWindowImguiDemo, NULL, igShowDemoWindow);
-         SIM_GUI_AppButton("PrjSpecific", &s_showWindowPrjSpecific, NULL, SIM_GUI_Prj_main);
-diff --git a/libraries/sim/src/gui/gui_config.c b/libraries/sim/src/gui/gui_config.c
-index 7434a18..a5feabe 100644
---- a/libraries/sim/src/gui/gui_config.c
-+++ b/libraries/sim/src/gui/gui_config.c
-@@ -13,6 +13,8 @@
+ smooth in vec2 fragTexCoord;
+@@ -25,6 +36,9 @@ void main()
+ {
+     int oamsDrawn = 0;
+     int currentBgDrawn = 5; // Backdrop
++    if(placeHidden == 1) {
++        discard;
++    }
+     bool objWindowEnabled = ((dispcnt >> 15) & 1) == 1;
+     if(topScreen == 1) {
+         if(fragTexCoord.t < 0.5){
+@@ -34,21 +48,51 @@ void main()
+         if(fragTexCoord.t >= 0.5){
+             discard;
+         }
++    vec2 sampleCoord = fragTexCoord;
++    {
++        // Map a rectangle of this engine's output onto a rectangle of the
++        // window. The source rect (srcCenterX/Y, srcWidth/Height) picks how much
++        // of the engine to show, which is what lets a caller crop away the black
++        // letterboxing a scene renders around its picture; the destination rect
++        // (placeCenterX/Y, placeWidth/Height) says where in the window it lands.
++        // Both default to the full unit square, so the identity case costs a few
++        // exact-arithmetic ops and changes nothing.
++        //
++        // Fragments outside the destination rect are discarded, falling through
++        // to whatever an earlier pass drew or to the cleared background - which
++        // is what produces the bars when two engines are placed into
++        // non-overlapping rects.
++        float localT = (topScreen == 1) ? (fragTexCoord.t - 0.5) * 2.0 : fragTexCoord.t * 2.0;
++        float localS = fragTexCoord.s;
++        float loS = placeCenterX - placeWidth * 0.5;
++        float hiS = placeCenterX + placeWidth * 0.5;
++        float loT = placeCenterY - placeHeight * 0.5;
++        float hiT = placeCenterY + placeHeight * 0.5;
++        if(localS < loS || localS > hiS || localT < loT || localT > hiT) {
++            discard;
++        }
++        float destS = (localS - loS) / placeWidth;
++        float destT = (localT - loT) / placeHeight;
++        float srcS = (srcCenterX - srcWidth * 0.5) + destS * srcWidth;
++        float srcT = (srcCenterY - srcHeight * 0.5) + destT * srcHeight;
++        sampleCoord.s = srcS;
++        sampleCoord.t = (topScreen == 1) ? (srcT * 0.5 + 0.5) : (srcT * 0.5);
++    }
+     }
+     for(int i=0; i<4; i++) {
+         int bgNum = bgOrder[i];
+         int curPrio = bgPriorities[bgNum];
+         // Draw the OBJs that are at or below the current BG priority
+         for(int j=3-oamsDrawn; j>curPrio; j--) {
+-            if(texture(objTexture[j], fragTexCoord).a > 0.1) {
+-                color = texture(objTexture[j], fragTexCoord);
++            if(texture(objTexture[j], sampleCoord).a > 0.1) {
++                color = texture(objTexture[j], sampleCoord);
+                 currentBgDrawn = 4;
+             }
+             oamsDrawn++;
+         }
+         
+         // Check obj window
+-        if(objWindowEnabled && texture(objWindowTexture, fragTexCoord).a > 0.1)
++        if(objWindowEnabled && texture(objWindowTexture, sampleCoord).a > 0.1)
+         {
+             // Inside the window
+             if(((winout >> (bgNum+8)) & 1) == 0) {
+@@ -61,59 +105,59 @@ void main()
+             }
+         }
+         // Draw the current bg
+-        if(texture(bgTexture[bgNum], fragTexCoord).a > 0.1) {
++        if(texture(bgTexture[bgNum], sampleCoord).a > 0.1) {
+             //Handle blending
+             if( (((bldcnt >> 6) & 0x3) == 1) && ((bldcnt >> bgNum & 1) == 1) ){
+                 // Alpha Blending Mode. bgNum is Target 1.
+                 float alphaA = min(16.0, float(bldalpha & 31)) / 16.0;
+                 float alphaB = min(16.0, float((bldalpha >> 8) & 31)) / 16.0;
+                 if(bgNum == 0 && bg0as3d != 0) {
+-                    alphaA = texture(bgTexture[0], fragTexCoord).a;
++                    alphaA = texture(bgTexture[0], sampleCoord).a;
+                     alphaB = 1.0 - alphaA;
+                 }
+                 if((currentBgDrawn < 4) && (((bldcnt >> (8+currentBgDrawn)) & 1) == 1) ) {
+-                    color.r = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).r *alphaA) + (texture(bgTexture[currentBgDrawn], fragTexCoord).r * alphaB)));
+-                    color.g = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).g *alphaA) + (texture(bgTexture[currentBgDrawn], fragTexCoord).g * alphaB)));
+-                    color.b = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).b *alphaA) + (texture(bgTexture[currentBgDrawn], fragTexCoord).b * alphaB)));
++                    color.r = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).r *alphaA) + (texture(bgTexture[currentBgDrawn], sampleCoord).r * alphaB)));
++                    color.g = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).g *alphaA) + (texture(bgTexture[currentBgDrawn], sampleCoord).g * alphaB)));
++                    color.b = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).b *alphaA) + (texture(bgTexture[currentBgDrawn], sampleCoord).b * alphaB)));
+                     color.a = 1.0;
+                     currentBgDrawn = bgNum;
+                 } else if( (currentBgDrawn == 4) && ( ( (bldcnt >> (8+currentBgDrawn)) & 1) == 1) ){
+                     // Alpha blending where the highest OBJ pixel is the target
+-                    color.r = min(1.0, ( (texture(bgTexture[bgNum], fragTexCoord).r *alphaA) + color.r * alphaB) );
+-                    color.g = min(1.0, ( (texture(bgTexture[bgNum], fragTexCoord).g *alphaA) + color.g * alphaB) );
+-                    color.b = min(1.0, ( (texture(bgTexture[bgNum], fragTexCoord).b *alphaA) + color.b * alphaB) );
++                    color.r = min(1.0, ( (texture(bgTexture[bgNum], sampleCoord).r *alphaA) + color.r * alphaB) );
++                    color.g = min(1.0, ( (texture(bgTexture[bgNum], sampleCoord).g *alphaA) + color.g * alphaB) );
++                    color.b = min(1.0, ( (texture(bgTexture[bgNum], sampleCoord).b *alphaA) + color.b * alphaB) );
+                     color.a = 1.0;
+                 } else if((currentBgDrawn == 5) && (((bldcnt >> (8+currentBgDrawn)) & 1) == 1)) {
+                     // Alpha blending where the backdrop is the target
+-                    color.r = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).r *alphaA) + backdropColor.r * alphaB));
+-                    color.g = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).g *alphaA) + backdropColor.g * alphaB));
+-                    color.b = min(1.0, ((texture(bgTexture[bgNum], fragTexCoord).b *alphaA) + backdropColor.b * alphaB));
++                    color.r = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).r *alphaA) + backdropColor.r * alphaB));
++                    color.g = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).g *alphaA) + backdropColor.g * alphaB));
++                    color.b = min(1.0, ((texture(bgTexture[bgNum], sampleCoord).b *alphaA) + backdropColor.b * alphaB));
+                     color.a = 1.0;
+                 } else {
+-                    color = texture(bgTexture[bgNum], fragTexCoord);
++                    color = texture(bgTexture[bgNum], sampleCoord);
+                     currentBgDrawn = bgNum;
+                 }
+             } else if((((bldcnt >> 6) & 0x3) == 2) && ((bldcnt >> bgNum & 1) == 1)) {
+                 // Brightness Increase Mode. bgNum is Target 1.
+                 float brightFactor = min(16.0, float(bldy & 31)) / 16.0;
+-                //color.r = min(1.0, ( texture(bgTexture[bgNum], fragTexCoord).r + ((1.0 - texture(bgTexture[bgNum], fragTexCoord).r)*brightFactor)) );
+-                //color.g = min(1.0, ( texture(bgTexture[bgNum], fragTexCoord).g + ((1.0 - texture(bgTexture[bgNum], fragTexCoord).g)*brightFactor)) );
+-                //color.b = min(1.0, ( texture(bgTexture[bgNum], fragTexCoord).b + ((1.0 - texture(bgTexture[bgNum], fragTexCoord).b)*brightFactor)) );
+-                color.r = texture(bgTexture[bgNum], fragTexCoord).r + (1.0 - texture(bgTexture[bgNum], fragTexCoord).r)*brightFactor;
+-                color.g = texture(bgTexture[bgNum], fragTexCoord).g + (1.0 - texture(bgTexture[bgNum], fragTexCoord).g)*brightFactor;
+-                color.b = texture(bgTexture[bgNum], fragTexCoord).b + (1.0 - texture(bgTexture[bgNum], fragTexCoord).b)*brightFactor;
++                //color.r = min(1.0, ( texture(bgTexture[bgNum], sampleCoord).r + ((1.0 - texture(bgTexture[bgNum], sampleCoord).r)*brightFactor)) );
++                //color.g = min(1.0, ( texture(bgTexture[bgNum], sampleCoord).g + ((1.0 - texture(bgTexture[bgNum], sampleCoord).g)*brightFactor)) );
++                //color.b = min(1.0, ( texture(bgTexture[bgNum], sampleCoord).b + ((1.0 - texture(bgTexture[bgNum], sampleCoord).b)*brightFactor)) );
++                color.r = texture(bgTexture[bgNum], sampleCoord).r + (1.0 - texture(bgTexture[bgNum], sampleCoord).r)*brightFactor;
++                color.g = texture(bgTexture[bgNum], sampleCoord).g + (1.0 - texture(bgTexture[bgNum], sampleCoord).g)*brightFactor;
++                color.b = texture(bgTexture[bgNum], sampleCoord).b + (1.0 - texture(bgTexture[bgNum], sampleCoord).b)*brightFactor;
+                 color.a = 1.0;
+                 currentBgDrawn = bgNum;
+             } else if((((bldcnt >> 6) & 0x3) == 3) && ((bldcnt >> bgNum & 1) == 1)) {
+                 // Brightness Decrease Mode. bgNum is Target 1.
+                 float brightFactor = min(16.0, float(bldy & 31)) / 16.0;
+-                color.r = max(0.0, ( texture(bgTexture[bgNum], fragTexCoord).r - ((texture(bgTexture[bgNum], fragTexCoord).r)*brightFactor)) );
+-                color.g = max(0.0, ( texture(bgTexture[bgNum], fragTexCoord).g - ((texture(bgTexture[bgNum], fragTexCoord).g)*brightFactor)) );
+-                color.b = max(0.0, ( texture(bgTexture[bgNum], fragTexCoord).b - ((texture(bgTexture[bgNum], fragTexCoord).b)*brightFactor)) );
++                color.r = max(0.0, ( texture(bgTexture[bgNum], sampleCoord).r - ((texture(bgTexture[bgNum], sampleCoord).r)*brightFactor)) );
++                color.g = max(0.0, ( texture(bgTexture[bgNum], sampleCoord).g - ((texture(bgTexture[bgNum], sampleCoord).g)*brightFactor)) );
++                color.b = max(0.0, ( texture(bgTexture[bgNum], sampleCoord).b - ((texture(bgTexture[bgNum], sampleCoord).b)*brightFactor)) );
+                 color.a = 1.0;
+                 currentBgDrawn = bgNum;
+             } else {
+-                color.rgb = texture(bgTexture[bgNum], fragTexCoord).rgb;
++                color.rgb = texture(bgTexture[bgNum], sampleCoord).rgb;
+                 color.a = 1.0;
+                 currentBgDrawn = bgNum;
+             }
+@@ -121,13 +165,62 @@ void main()
+     }
+     //Draw the remaining objs
+     for(int i=3-oamsDrawn; i>=0; i--) {
+-        if(texture(objTexture[i], fragTexCoord).a > 0.1) {
+-            color = texture(objTexture[i], fragTexCoord);
++        if(texture(objTexture[i], sampleCoord).a > 0.1) {
++            color = texture(objTexture[i], sampleCoord);
+             currentBgDrawn = 4;
+         }
+     }
+     if(currentBgDrawn == 5) {
+-        color = backdropColor;
++        if(transparentBackdrop == 1) {
++            color = vec4(0.0, 0.0, 0.0, 0.0);
++        } else {
++            color = backdropColor;
++        }
++    }
++    if(placeDefringe == 1 && currentBgDrawn != 5) {
++        // Much of this game's 2D art was anti-aliased against an opaque light
++        // background, so silhouette pixels are baked-in near-white blends (a
++        // white matte). That is invisible on hardware, where the art sits on
++        // its own light backdrop, but composited over a dark scene in the
++        // single-screen layout it reads as a white halo. Undo it by treating
++        // lightness as transparency, but only for pixels on the silhouette
++        // (touching an undrawn neighbour) and only where the pixel is
++        // essentially greyscale - so genuine art colors like the logo's yellow
++        // fill and blue outline keep their full opacity.
++        // The matte can be several pixels thick, so find how far this pixel is
++        // from undrawn space and scale the fade by that: the outer shell gets
++        // it in full, deeper rings progressively less. That tapers the matte
++        // off smoothly instead of taking a hard bite out of the silhouette.
++        vec2 texel = 1.0 / vec2(textureSize(bgTexture[0], 0));
++        int edgeDist = 0;
++        for(int k=0; k<4; k++) {
++            vec2 dir = (k==0) ? vec2(1.0, 0.0)
++                     : (k==1) ? vec2(-1.0, 0.0)
++                     : (k==2) ? vec2(0.0, 1.0)
++                              : vec2(0.0, -1.0);
++            for(int d=1; d<=3; d++) {
++                vec2 nc = sampleCoord + dir * texel * float(d);
++                float neighbourAlpha = 0.0;
++                for(int b=0; b<4; b++) {
++                    neighbourAlpha = max(neighbourAlpha, texture(bgTexture[b], nc).a);
++                }
++                for(int o=0; o<4; o++) {
++                    neighbourAlpha = max(neighbourAlpha, texture(objTexture[o], nc).a);
++                }
++                if(neighbourAlpha <= 0.1 && (edgeDist == 0 || d < edgeDist)) {
++                    edgeDist = d;
++                }
++            }
++        }
++        if(edgeDist != 0) {
++            float mx = max(color.r, max(color.g, color.b));
++            float mn = min(color.r, min(color.g, color.b));
++            if((mx - mn) < 0.28) {
++                float strength = (edgeDist == 1) ? 1.0 : (edgeDist == 2) ? 0.7 : 0.4;
++                float keep = 1.0 - smoothstep(0.22, 0.88, mx);
++                color.a *= mix(1.0, keep, strength);
++            }
++        }
+     }
+     
+     if(inMasterBrightMode == 1) {
+diff --git a/libraries/sim/src/sim_gui.cpp b/libraries/sim/src/sim_gui.cpp
+index 95b3b71..f0cb09c 100644
+--- a/libraries/sim/src/sim_gui.cpp
++++ b/libraries/sim/src/sim_gui.cpp
+@@ -19,6 +19,7 @@ static constexpr ImVec2 sButtonSize = {100, 20};
  
- #include <nitro/os.h>
+ static bool sShowAppConfig = false;
+ static bool sShowAppPad = false;
++static bool sShowAppPlacement = false;
+ static bool sShowAppNet = false;
+ static bool sShowImGuiDemo = false;
+ static bool sShowWindowPrjSpecific = false;
+@@ -73,6 +74,7 @@ void Main() {
  
-+#include <stdio.h>
-+
- // External variables
- extern SIM_config_type s_SIM_config;
- 
-@@ -27,7 +29,8 @@ static int sVSyncInterval;
- static const char * ScreenLayoutStrings[] = {
+         AppButton("Config", &sShowAppConfig, AppConfigInit, AppConfigMain);
+         AppButton("Input", &sShowAppPad, AppPadInit, AppPadMain);
++        AppButton("Placement", &sShowAppPlacement, nullptr, AppPlacementMain);
+         AppButton("Multiplayer", &sShowAppNet, AppNetInit, AppNetMain);
+         AppButton("ImGui Demo", &sShowImGuiDemo, nullptr, ImGui::ShowDemoWindow);
+         AppButton("Application", &sShowWindowPrjSpecific, nullptr, PrjMain);
+diff --git a/libraries/sim/src/sim_gui_config.cpp b/libraries/sim/src/sim_gui_config.cpp
+index 4303244..f9c7eb7 100644
+--- a/libraries/sim/src/sim_gui_config.cpp
++++ b/libraries/sim/src/sim_gui_config.cpp
+@@ -22,7 +22,8 @@ static SIM_config_type * sConfig;
+ static constexpr const char * ScreenLayoutStrings[] = {
      "Vertical",
      "Horizontal",
 -    "Large Screen"
@@ -400,22 +404,20 @@ index 7434a18..a5feabe 100644
 +    "Main Screen Only"
  };
  
- static const char * VblankStrings[] = {
-@@ -49,7 +52,7 @@ void GUI_AppConfigMain(bool * p_open)
-     sFrameLimit = s_SIM_config.capFrameRate;
+ static constexpr const char * VblankStrings[] = {
+@@ -50,7 +51,7 @@ void AppConfigMain(bool *openState) {
+         SIM_SetInternalResolutionAfterRender(sConfig->internalResolutionScale);
+     }
  
-     igBegin("Config", p_open, 0);
--    if(igCombo_Str_arr("Layout", &sScreenLayout, ScreenLayoutStrings, 3, 3)) {
-+    if(igCombo_Str_arr("Layout", &sScreenLayout, ScreenLayoutStrings, 4, 4)) {
-         sConfigChanged = true;
+-    if(ImGui::Combo("Layout", &screenLayout, ScreenLayoutStrings, 3, 3)) {
++    if(ImGui::Combo("Layout", &screenLayout, ScreenLayoutStrings, 4, 4)) {
+         configChanged = true;
      }
-     if(igCheckbox("Swap Screens", &sSwapScreens)){
-@@ -78,3 +81,94 @@ void GUI_AppConfigMain(bool * p_open)
+     if(ImGui::Checkbox("Swap Screens", &swapScreens)) {
+@@ -83,4 +84,80 @@ void AppConfigMain(bool *openState) {
      }
-     return;
  }
-+
-+
+ 
 +// Live editor for the main_only per-engine placements. Tuning these by eye is
 +// the only practical way to frame a scene - the numbers mean nothing until you
 +// see the composite - so this exposes them directly rather than requiring a
@@ -426,103 +428,80 @@ index 7434a18..a5feabe 100644
 +// Values set here last until the game writes them again, which scenes do at
 +// their own transitions - so an edit sticks within a scene but is expected to
 +// be overwritten when the next one starts.
-+static void PlacementEditor(const char * aLabel, BOOL aIsSub)
-+{
++static void PlacementEditor(const char * label, BOOL isSub) {
 +    SIM_MainOnlyPlacement placement;
 +    bool changed = false;
-+    bool cutout;
-+    bool defringe;
-+    bool hidden;
-+    char id[64];
 +
-+    SIM_GetMainOnlyPlacement(aIsSub, &placement);
++    SIM_GetMainOnlyPlacement(isSub, &placement);
 +
-+    cutout = placement.cutout ? true : false;
-+    defringe = placement.defringe ? true : false;
-+    hidden = placement.hidden ? true : false;
++    bool cutout = placement.cutout;
++    bool defringe = placement.defringe;
++    bool hidden = placement.hidden;
 +
-+    igText("%s", aLabel);
++    ImGui::Text("%s", label);
++    ImGui::PushID(label);
 +
-+    snprintf(id, sizeof(id), "center X##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.centerX, 0.0f, 1.0f, "%.3f", 0);
-+    snprintf(id, sizeof(id), "center Y##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.centerY, 0.0f, 1.0f, "%.3f", 0);
-+    snprintf(id, sizeof(id), "width##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.width, 0.0f, 1.0f, "%.3f", 0);
-+    snprintf(id, sizeof(id), "height##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.height, 0.0f, 1.0f, "%.3f", 0);
++    changed |= ImGui::SliderFloat("center X", &placement.centerX, 0.0f, 1.0f, "%.3f");
++    changed |= ImGui::SliderFloat("center Y", &placement.centerY, 0.0f, 1.0f, "%.3f");
++    changed |= ImGui::SliderFloat("width", &placement.width, 0.0f, 1.0f, "%.3f");
++    changed |= ImGui::SliderFloat("height", &placement.height, 0.0f, 1.0f, "%.3f");
 +
-+    snprintf(id, sizeof(id), "src center X##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.srcCenterX, 0.0f, 1.0f, "%.3f", 0);
-+    snprintf(id, sizeof(id), "src center Y##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.srcCenterY, 0.0f, 1.0f, "%.3f", 0);
-+    snprintf(id, sizeof(id), "src width##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.srcWidth, 0.0f, 1.0f, "%.3f", 0);
-+    snprintf(id, sizeof(id), "src height##%s", aLabel);
-+    changed |= igSliderFloat(id, &placement.srcHeight, 0.0f, 1.0f, "%.3f", 0);
++    changed |= ImGui::SliderFloat("src center X", &placement.srcCenterX, 0.0f, 1.0f, "%.3f");
++    changed |= ImGui::SliderFloat("src center Y", &placement.srcCenterY, 0.0f, 1.0f, "%.3f");
++    changed |= ImGui::SliderFloat("src width", &placement.srcWidth, 0.0f, 1.0f, "%.3f");
++    changed |= ImGui::SliderFloat("src height", &placement.srcHeight, 0.0f, 1.0f, "%.3f");
 +
-+    snprintf(id, sizeof(id), "cutout (overlay)##%s", aLabel);
-+    if(igCheckbox(id, &cutout)) {
++    if(ImGui::Checkbox("cutout (overlay)", &cutout)) {
 +        placement.cutout = cutout ? TRUE : FALSE;
 +        changed = true;
 +    }
-+    snprintf(id, sizeof(id), "defringe##%s", aLabel);
-+    if(igCheckbox(id, &defringe)) {
++    if(ImGui::Checkbox("defringe", &defringe)) {
 +        placement.defringe = defringe ? TRUE : FALSE;
 +        changed = true;
 +    }
-+    snprintf(id, sizeof(id), "hidden##%s", aLabel);
-+    if(igCheckbox(id, &hidden)) {
++    if(ImGui::Checkbox("hidden", &hidden)) {
 +        placement.hidden = hidden ? TRUE : FALSE;
 +        changed = true;
 +    }
 +
++    ImGui::PopID();
++
 +    if(changed) {
-+        SIM_SetMainOnlyPlacement(aIsSub, &placement);
++        SIM_SetMainOnlyPlacement(isSub, &placement);
 +    }
 +}
 +
-+void GUI_AppPlacementMain(bool * p_open)
-+{
-+    ImVec2 btnSize = {0, 0};
++void AppPlacementMain(bool *openState) {
++    SIM_config_type * config = SIM_GetConfigPtr();
 +
-+    igBegin("Placement", p_open, 0);
++    ImGui::Begin("Placement", openState);
 +
-+    if(s_SIM_config.screenLayout != SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
-+        igText("Only applies to the Main Screen Only layout.");
-+        igText("Current layout ignores these values.");
-+        igSeparator();
++    if(config->screenLayout != SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) {
++        ImGui::Text("Only applies to the Main Screen Only layout.");
++        ImGui::Text("Current layout ignores these values.");
++        ImGui::Separator();
 +    }
 +
 +    PlacementEditor("MAIN engine", FALSE);
-+    igSeparator();
++    ImGui::Separator();
 +    PlacementEditor("SUB engine", TRUE);
-+    igSeparator();
++    ImGui::Separator();
 +
-+    if(igButton("Reset both", btnSize)) {
++    if(ImGui::Button("Reset both")) {
 +        SIM_ResetMainOnlyPlacements();
 +    }
 +
-+    igEnd();
++    ImGui::End();
 +}
-diff --git a/libraries/sim/src/gui/gui_internal.h b/libraries/sim/src/gui/gui_internal.h
-index 6d373fd..f970ca7 100644
---- a/libraries/sim/src/gui/gui_internal.h
-+++ b/libraries/sim/src/gui/gui_internal.h
-@@ -8,6 +8,7 @@ void GUI_AppG2Main(bool * p_open);
- void GUI_AppNetMain(bool * p_open);
- void GUI_AppOSMain(bool * p_open);
- void GUI_AppPadMain(bool * p_open);
-+void GUI_AppPlacementMain(bool * p_open);
- 
- void GUI_AppNetInit();
- 
-diff --git a/libraries/sim/src/sim_main.c b/libraries/sim/src/sim_main.c
-index 8389013..dad3598 100644
---- a/libraries/sim/src/sim_main.c
-+++ b/libraries/sim/src/sim_main.c
-@@ -64,6 +64,19 @@ extern int NitroSpMain(void * arg);
- //Simulator configuration
++
+ }
+\ No newline at end of file
+diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
+index ef55838..c956f94 100644
+--- a/libraries/sim/src/sim_main.cpp
++++ b/libraries/sim/src/sim_main.cpp
+@@ -65,6 +65,19 @@ extern "C" int NitroSpMain(void *arg);
+ // Simulator configuration
  SIM_config_type s_SIM_config = {};
  
 +// Where each engine's output lands inside the window under
@@ -538,10 +517,10 @@ index 8389013..dad3598 100644
 +    SIM_MAIN_ONLY_PLACEMENT_OVERLAY
 +};
 +
- //Thread
+ // Thread
  extern OSThreadInfo OSi_ThreadInfo;
  
-@@ -90,6 +103,9 @@ u8 s_SIM_DBG_OAMSenable = 1;
+@@ -89,6 +102,9 @@ u8 s_SIM_DBG_OAMSenable = 1;
  
  u8 s_SIM_useWBuffer = 0;
  
@@ -549,275 +528,274 @@ index 8389013..dad3598 100644
 +#define SIM_DS_FRAME_PERIOD_NS 16715265ULL
 +
  static struct timespec s_SIM_lastFrameEnd;
- u64 s_SIM_frameTime;
+ static u64 sRenderFrameTime;
+ static u64 sFullFrameTime;
+@@ -257,6 +273,22 @@ static void DrawScreenQuad() {
  
-@@ -353,6 +369,25 @@ SIM_config_type * SIM_GetConfigPtr()
-     return &s_SIM_config;
+ SIM_config_type *SIM_GetConfigPtr() { return &s_SIM_config; }
+ 
++void SIM_SetMainOnlyPlacement(BOOL isSub, const SIM_MainOnlyPlacement *placement) {
++  s_SIM_mainOnlyPlacement[isSub ? 1 : 0] = *placement;
++}
++
++void SIM_GetMainOnlyPlacement(BOOL isSub, SIM_MainOnlyPlacement *placement) {
++  *placement = s_SIM_mainOnlyPlacement[isSub ? 1 : 0];
++}
++
++void SIM_ResetMainOnlyPlacements(void) {
++  SIM_MainOnlyPlacement mainPlacement = SIM_MAIN_ONLY_PLACEMENT_BASE;
++  SIM_MainOnlyPlacement subPlacement = SIM_MAIN_ONLY_PLACEMENT_OVERLAY;
++
++  s_SIM_mainOnlyPlacement[0] = mainPlacement;
++  s_SIM_mainOnlyPlacement[1] = subPlacement;
++}
++
+ static u64 map(u64 x, u64 in_min, u64 in_max, u64 out_min, u64 out_max) {
+   return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
  }
+@@ -334,6 +366,10 @@ void *SIM_RenderInit(void *arg) {
+       windowHeight = SIM_NDS_SCREEN_HEIGHT * 2 * 2;
+       windowWidth = (SIM_NDS_SCREEN_WIDTH * 2 * 2) + (SIM_NDS_SCREEN_WIDTH * 2);
+       break;
++    case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
++      windowHeight = SIM_NDS_SCREEN_HEIGHT * 2;
++      windowWidth = SIM_NDS_SCREEN_WIDTH * 2;
++      break;
+     }
+   } else {
+     windowHeight = s_SIM_config.windowHeight;
+@@ -460,6 +496,22 @@ void *SIM_RenderInit(void *arg) {
  
-+void SIM_SetMainOnlyPlacement(BOOL isSub, const SIM_MainOnlyPlacement * placement)
-+{
-+    s_SIM_mainOnlyPlacement[isSub ? 1 : 0] = *placement;
-+}
-+
-+void SIM_GetMainOnlyPlacement(BOOL isSub, SIM_MainOnlyPlacement * placement)
-+{
-+    *placement = s_SIM_mainOnlyPlacement[isSub ? 1 : 0];
-+}
-+
-+void SIM_ResetMainOnlyPlacements(void)
-+{
-+    SIM_MainOnlyPlacement mainPlacement = SIM_MAIN_ONLY_PLACEMENT_BASE;
-+    SIM_MainOnlyPlacement subPlacement = SIM_MAIN_ONLY_PLACEMENT_OVERLAY;
-+
-+    s_SIM_mainOnlyPlacement[0] = mainPlacement;
-+    s_SIM_mainOnlyPlacement[1] = subPlacement;
-+}
-+
+   GenerateTexture(dummyScreenTextureId, SIM_NDS_SCREEN_WIDTH,
+                   SIM_NDS_SCREEN_HEIGHT * 2);
++  {
++    // Disabled BG layers get rebound to this texture so the shader samples it
++    // instead and treats them as "not drawn" (alpha <= 0.1). glTexImage2D with
++    // NULL data leaves the GPU's initial memory contents undefined on some
++    // drivers, so a disabled layer can show garbage instead of nothing.
++    // Explicitly zero it so it's reliably transparent everywhere.
++    size_t dummyDataSize =
++        (size_t)SIM_NDS_SCREEN_WIDTH * (SIM_NDS_SCREEN_HEIGHT * 2) * 4;
++    void *dummyZeroData = calloc(1, dummyDataSize);
++    glActiveTexture(GL_TEXTURE0);
++    glBindTexture(GL_TEXTURE_2D, dummyScreenTextureId);
++    glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_NDS_SCREEN_WIDTH,
++                    SIM_NDS_SCREEN_HEIGHT * 2, GL_RGBA, GL_UNSIGNED_BYTE,
++                    dummyZeroData);
++    free(dummyZeroData);
++  }
+   GenerateTexture(objWindowTextureId, SIM_NDS_SCREEN_WIDTH,
+                   SIM_NDS_SCREEN_HEIGHT * 2);
  
- static u64 map(u64 x, u64 in_min, u64 in_max, u64 out_min, u64 out_max)
- {
-@@ -1086,6 +1121,10 @@ void * SIM_RenderInit(void * arg){
-                 windowHeight = SIM_NDS_SCREEN_HEIGHT*2*2;
-                 windowWidth = (SIM_NDS_SCREEN_WIDTH*2*2) + (SIM_NDS_SCREEN_WIDTH * 2);
-                 break;
-+            case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
-+                windowHeight = SIM_NDS_SCREEN_HEIGHT*2;
-+                windowWidth = SIM_NDS_SCREEN_WIDTH*2;
-+                break;
-         }
+@@ -795,6 +847,69 @@ static void DrawEngine(BOOL isSub) {
+                      glGetUniformLocation(g2shaderProgramID, "bg0as3d"),
+                      bg0as3d);
+ 
++  // Under main_only both engines share one window, so this pass's placement
++  // decides where its output lands and whether it paints its backdrop. Outside
++  // main_only every engine fills its own screen region opaquely, which is the
++  // hardware behaviour, so the placement is forced back to the identity here
++  // rather than being left to whatever a screen last set.
++  BOOL isMainOnly =
++      (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY);
++  const SIM_MainOnlyPlacement *placement =
++      &s_SIM_mainOnlyPlacement[isSub ? 1 : 0];
++
++  // A cutout pass leaves untouched-backdrop pixels transparent instead of
++  // filling them with the backdrop color, so whatever was drawn underneath
++  // shows through and only this engine's real content overlays it.
++  int transparentBackdrop = (isMainOnly && placement->cutout) ? 1 : 0;
++  glProgramUniform1i(
++      g2shaderProgramID,
++      glGetUniformLocation(g2shaderProgramID, "transparentBackdrop"),
++      transparentBackdrop);
++
++  float placeCenterX = isMainOnly ? placement->centerX : 0.5f;
++  float placeCenterY = isMainOnly ? placement->centerY : 0.5f;
++  float placeWidth = isMainOnly ? placement->width : 1.0f;
++  float placeHeight = isMainOnly ? placement->height : 1.0f;
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "placeCenterX"),
++                     placeCenterX);
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "placeCenterY"),
++                     placeCenterY);
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "placeWidth"),
++                     placeWidth);
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "placeHeight"),
++                     placeHeight);
++
++  int placeDefringe = (isMainOnly && placement->defringe) ? 1 : 0;
++  glProgramUniform1i(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "placeDefringe"),
++                     placeDefringe);
++
++  int placeHidden = (isMainOnly && placement->hidden) ? 1 : 0;
++  glProgramUniform1i(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "placeHidden"),
++                     placeHidden);
++
++  float srcCenterX = isMainOnly ? placement->srcCenterX : 0.5f;
++  float srcCenterY = isMainOnly ? placement->srcCenterY : 0.5f;
++  float srcWidth = isMainOnly ? placement->srcWidth : 1.0f;
++  float srcHeight = isMainOnly ? placement->srcHeight : 1.0f;
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "srcCenterX"),
++                     srcCenterX);
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "srcCenterY"),
++                     srcCenterY);
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "srcWidth"),
++                     srcWidth);
++  glProgramUniform1f(g2shaderProgramID,
++                     glGetUniformLocation(g2shaderProgramID, "srcHeight"),
++                     srcHeight);
++
+   // Pass master bright info to the shader
+   float masterBrightFactor = isSub
+                                  ? (float)(s_reg_GXS_DB_MASTER_BRIGHT & 0b11111)
+@@ -974,6 +1089,9 @@ void *SIM_Render(void *arg) {
+     case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
+       aspectRatio = 768.0f / 384.0f;
+       break;
++    case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
++      aspectRatio = 256.0f / 192.0f;
++      break;
+     }
+ 
+     viewWidth = windowWidth;
+@@ -1011,6 +1129,14 @@ void *SIM_Render(void *arg) {
+         s_TouchPanelCoords[2] = viewX + ((viewWidth / 3) * 2);
+         s_TouchPanelCoords[3] = viewY + viewHeight;
+         break;
++      case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
++        // Swapped in main-only mode shows the sub (touch) screen filling the
++        // whole viewport.
++        s_TouchPanelCoords[0] = viewX;
++        s_TouchPanelCoords[1] = viewY;
++        s_TouchPanelCoords[2] = viewX + viewWidth;
++        s_TouchPanelCoords[3] = viewY + viewHeight;
++        break;
+       }
      } else {
-         windowHeight = s_SIM_config.windowHeight;
-@@ -1200,6 +1239,19 @@ void * SIM_RenderInit(void * arg){
+       switch (s_SIM_config.screenLayout) {
+@@ -1033,6 +1159,14 @@ void *SIM_Render(void *arg) {
+         s_TouchPanelCoords[2] = viewX + viewWidth;
+         s_TouchPanelCoords[3] = viewY + viewHeight;
+         break;
++      case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
++        // Unswapped in main-only mode shows the main (non-touch) screen - no
++        // touch area.
++        s_TouchPanelCoords[0] = viewX;
++        s_TouchPanelCoords[1] = viewY;
++        s_TouchPanelCoords[2] = viewX;
++        s_TouchPanelCoords[3] = viewY;
++        break;
+       }
+     }
  
+@@ -1229,7 +1363,12 @@ void *SIM_Render(void *arg) {
+     SDL_GetMouseState(&x, &y);
  
-     GenerateTexture(dummyScreenTextureId, SIM_NDS_SCREEN_WIDTH, SIM_NDS_SCREEN_HEIGHT*2);
-+    {
-+        // Disabled BG layers get rebound to this texture so the shader samples it
-+        // instead and treats them as "not drawn" (alpha <= 0.1). glTexImage2D with
-+        // NULL data leaves the GPU's initial memory contents undefined on some
-+        // drivers, so a disabled layer can show garbage instead of nothing.
-+        // Explicitly zero it so it's reliably transparent everywhere.
-+        size_t dummyDataSize = (size_t)SIM_NDS_SCREEN_WIDTH * (SIM_NDS_SCREEN_HEIGHT*2) * 4;
-+        void * dummyZeroData = calloc(1, dummyDataSize);
-+        glActiveTexture(GL_TEXTURE0);
-+        glBindTexture(GL_TEXTURE_2D, dummyScreenTextureId);
-+        glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, SIM_NDS_SCREEN_WIDTH, SIM_NDS_SCREEN_HEIGHT*2, GL_RGBA, GL_UNSIGNED_BYTE, dummyZeroData);
-+        free(dummyZeroData);
-+    }
-     GenerateTexture(objWindowTextureId, SIM_NDS_SCREEN_WIDTH, SIM_NDS_SCREEN_HEIGHT*2);
-     GenerateTexture(g3TextureId1024, 1024, 1024);
-     GenerateTexture(g3TextureId1024x512, 1024, 512);
-@@ -1542,6 +1594,48 @@ static void DrawEngine(BOOL isSub) {
-     //Pass bg0as3d to the shader
-     glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "bg0as3d") , bg0as3d);
+     // Convert touch coordinate to DS screen coordinates
+-    if (x >= s_TouchPanelCoords[0] && x <= s_TouchPanelCoords[2] &&
++    // A zero-area touch panel box (e.g. no touch-capable screen visible, as in
++    // main-only layout showing the main screen) must never reach map()'s
++    // division below.
++    if (s_TouchPanelCoords[2] > s_TouchPanelCoords[0] &&
++        s_TouchPanelCoords[3] > s_TouchPanelCoords[1] &&
++        x >= s_TouchPanelCoords[0] && x <= s_TouchPanelCoords[2] &&
+         y >= s_TouchPanelCoords[1] && y <= s_TouchPanelCoords[3]) {
+       s_tpData.x = (u16)map(x, s_TouchPanelCoords[0], s_TouchPanelCoords[2], 0,
+                             SIM_NDS_SCREEN_WIDTH);
+@@ -1262,11 +1401,23 @@ void *SIM_Render(void *arg) {
+     memset(bg3stex, 0,
+            sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2);
  
-+    // In the composited single-screen layout, the SUB engine is drawn as a cutout overlay on
-+    // top of the MAIN engine's base image: wherever nothing was actually drawn (just backdrop),
-+    // the shader should leave that pixel transparent instead of filling it with the backdrop
-+    // color, so the MAIN engine's content shows through underneath instead of being overwritten.
-+    // Under main_only both engines share one window, so this pass's placement
-+    // decides where its output lands and whether it paints its backdrop. Outside
-+    // main_only every engine fills its own screen region opaquely, which is the
-+    // hardware behaviour, so the placement is forced back to the identity here
-+    // rather than being left to whatever a screen last set.
-+    BOOL isMainOnly = (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY);
-+    const SIM_MainOnlyPlacement * placement = &s_SIM_mainOnlyPlacement[isSub ? 1 : 0];
-+
-+    // A cutout pass leaves untouched-backdrop pixels transparent instead of
-+    // filling them with the backdrop color, so whatever was drawn underneath
-+    // shows through and only this engine's real content overlays it.
-+    int transparentBackdrop = (isMainOnly && placement->cutout) ? 1 : 0;
-+    glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "transparentBackdrop") , transparentBackdrop);
-+
-+    float placeCenterX = isMainOnly ? placement->centerX : 0.5f;
-+    float placeCenterY = isMainOnly ? placement->centerY : 0.5f;
-+    float placeWidth = isMainOnly ? placement->width : 1.0f;
-+    float placeHeight = isMainOnly ? placement->height : 1.0f;
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeCenterX") , placeCenterX);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeCenterY") , placeCenterY);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeWidth") , placeWidth);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeHeight") , placeHeight);
-+
-+    int placeDefringe = (isMainOnly && placement->defringe) ? 1 : 0;
-+    glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeDefringe") , placeDefringe);
-+
-+    int placeHidden = (isMainOnly && placement->hidden) ? 1 : 0;
-+    glProgramUniform1i(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "placeHidden") , placeHidden);
-+
-+    float srcCenterX = isMainOnly ? placement->srcCenterX : 0.5f;
-+    float srcCenterY = isMainOnly ? placement->srcCenterY : 0.5f;
-+    float srcWidth = isMainOnly ? placement->srcWidth : 1.0f;
-+    float srcHeight = isMainOnly ? placement->srcHeight : 1.0f;
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcCenterX") , srcCenterX);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcCenterY") , srcCenterY);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcWidth") , srcWidth);
-+    glProgramUniform1f(g2shaderProgramID, glGetUniformLocation(g2shaderProgramID, "srcHeight") , srcHeight);
-+
-     //Pass master bright info to the shader
-     float masterBrightFactor = isSub ? (float)(s_reg_GXS_DB_MASTER_BRIGHT & 0b11111) : (float)(s_reg_GX_MASTER_BRIGHT & 0b11111);
-     if(masterBrightFactor > 16.0f) {
-@@ -1716,6 +1810,9 @@ void * SIM_Render(void *arg){
-             case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
-                 aspectRatio = 768.0f / 384.0f;
-                 break;
-+            case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
-+                aspectRatio = 256.0f / 192.0f;
-+                break;
-         }
- 
-         viewWidth = windowWidth;
-@@ -1753,6 +1850,13 @@ void * SIM_Render(void *arg){
-                     s_TouchPanelCoords[2] = viewX + ((viewWidth / 3) * 2);
-                     s_TouchPanelCoords[3] = viewY + viewHeight;
-                     break;
-+                case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
-+                    // Swapped in main-only mode shows the sub (touch) screen filling the whole viewport.
-+                    s_TouchPanelCoords[0] = viewX;
-+                    s_TouchPanelCoords[1] = viewY;
-+                    s_TouchPanelCoords[2] = viewX + viewWidth;
-+                    s_TouchPanelCoords[3] = viewY + viewHeight;
-+                    break;
-             }
-         } else {
-             switch(s_SIM_config.screenLayout){
-@@ -1775,6 +1879,13 @@ void * SIM_Render(void *arg){
-                     s_TouchPanelCoords[2] = viewX + viewWidth;
-                     s_TouchPanelCoords[3] = viewY + viewHeight;
-                     break;
-+                case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
-+                    // Unswapped in main-only mode shows the main (non-touch) screen - no touch area.
-+                    s_TouchPanelCoords[0] = viewX;
-+                    s_TouchPanelCoords[1] = viewY;
-+                    s_TouchPanelCoords[2] = viewX;
-+                    s_TouchPanelCoords[3] = viewY;
-+                    break;
-             }
-         }
- 
-@@ -1961,7 +2072,10 @@ void * SIM_Render(void *arg){
-         //}
- 
-         //Convert touch coordinate to DS screen coordinates
--        if(x >= s_TouchPanelCoords[0] && x <= s_TouchPanelCoords[2] && y >= s_TouchPanelCoords[1] && y <= s_TouchPanelCoords[3])
-+        // A zero-area touch panel box (e.g. no touch-capable screen visible, as in main-only
-+        // layout showing the main screen) must never reach map()'s division below.
-+        if(s_TouchPanelCoords[2] > s_TouchPanelCoords[0] && s_TouchPanelCoords[3] > s_TouchPanelCoords[1]
-+            && x >= s_TouchPanelCoords[0] && x <= s_TouchPanelCoords[2] && y >= s_TouchPanelCoords[1] && y <= s_TouchPanelCoords[3])
-         {
-             s_tpData.x = (u16)map(x, s_TouchPanelCoords[0], s_TouchPanelCoords[2], 0, SIM_NDS_SCREEN_WIDTH);
-             s_tpData.y = (u16)map(y, s_TouchPanelCoords[1], s_TouchPanelCoords[3], 0, SIM_NDS_SCREEN_HEIGHT);
-@@ -1983,12 +2097,23 @@ void * SIM_Render(void *arg){
-         memset( bg2stex, 0, sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2 );
-         memset( bg3stex, 0, sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2 );
- 
--        //Draw MAIN engine
--        DrawEngine(FALSE);
+-    // Draw MAIN engine
+-    DrawEngine(FALSE);
 -
--
--        //SUB engine
--        DrawEngine(TRUE);
-+        // Hardware draws MAIN then SUB into separate screens, and every layout
-+        // except main_only keeps them in separate regions of the window, so the
-+        // order is irrelevant there. Under main_only the two engines can share a
-+        // window footprint (see s_MainOnlyCompositeQuad), and then order decides
-+        // what covers what: an opaque base pass has to be drawn before the cutout
-+        // pass that overlays it. Which engine is the base is up to the screen -
-+        // the opening cutscene hands that role back and forth as it swaps which
-+        // engine drives the top display - so pick the order from the placements
-+        // rather than assuming MAIN is always underneath. When both are opaque
-+        // they occupy non-overlapping rects and the order genuinely doesn't
-+        // matter.
-+        BOOL drawSubFirst = (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY)
-+            && s_SIM_mainOnlyPlacement[0].cutout
-+            && !s_SIM_mainOnlyPlacement[1].cutout;
+-    // SUB engine
+-    DrawEngine(TRUE);
++    // Hardware draws MAIN then SUB into separate screens, and every layout
++    // except main_only keeps them in separate regions of the window, so the
++    // order is irrelevant there. Under main_only the two engines can share a
++    // window footprint (see s_MainOnlyCompositeQuad), and then order decides
++    // what covers what: an opaque base pass has to be drawn before the cutout
++    // pass that overlays it. Which engine is the base is up to the screen -
++    // the opening cutscene hands that role back and forth as it swaps which
++    // engine drives the top display - so pick the order from the placements
++    // rather than assuming MAIN is always underneath. When both are opaque
++    // they occupy non-overlapping rects and the order genuinely doesn't
++    // matter.
++    BOOL drawSubFirst =
++        (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY) &&
++        s_SIM_mainOnlyPlacement[0].cutout && !s_SIM_mainOnlyPlacement[1].cutout;
 +
-+        DrawEngine(drawSubFirst);
-+        DrawEngine(!drawSubFirst);
++    DrawEngine(drawSubFirst);
++    DrawEngine(!drawSubFirst);
  
-         //Run HBlank Interrupt
-         OS_IRQTable[OS_IE_H_BLANK-1]();
-@@ -2005,29 +2130,69 @@ void * SIM_Render(void *arg){
-         clock_gettime(CLOCK_MONOTONIC, &curTime);
-         u64 frameNs;
-         frameNs = ((curTime.tv_sec - s_SIM_lastFrameEnd.tv_sec) * 1000000000) + (curTime.tv_nsec - s_SIM_lastFrameEnd.tv_nsec);
--        s_SIM_frameTime = frameNs;
- 
- 
-         #ifdef SDK_TRACY_ENABLE
-         TracyCZoneEnd(SimRenderZone);
-         #endif
--        //Limit framerate to 60 fps
-+        // Pace the frame. The DS refreshes at 59.8261Hz, not a round 60 - that is
-+        // the rate the game's timing was written against, and the ~0.7% error of
-+        // treating it as 60 accumulates into audio and animation drift over a
-+        // long session.
-         if(s_SIM_config.capFrameRate)
-         {
-+            if(frameNs < SIM_DS_FRAME_PERIOD_NS) {
-+                u64 remainingNs = SIM_DS_FRAME_PERIOD_NS - frameNs;
-+                u64 marginNs;
+     // Run HBlank Interrupt
+     OS_IRQTable[OS_IE_H_BLANK - 1]();
+@@ -1289,15 +1440,46 @@ void *SIM_Render(void *arg) {
+ #ifdef SDK_TRACY_ENABLE
+     TracyCZoneEnd(SimRenderZone);
+ #endif
+-    // Limit framerate to 60 fps
++    // Pace the frame. The DS refreshes at 59.8261Hz, not a round 60 - that is
++    // the rate the game's timing was written against, and the ~0.7% error of
++    // treating it as 60 accumulates into audio and animation drift over a
++    // long session.
+     if (s_SIM_config.capFrameRate && !sFastForward) {
++      if (frameNs < SIM_DS_FRAME_PERIOD_NS) {
++        u64 remainingNs = SIM_DS_FRAME_PERIOD_NS - frameNs;
++        u64 marginNs;
 +
-+                // With vsync on, the swap below blocks until the next refresh and
-+                // is what actually paces us. Sleeping right up to the deadline
-+                // risks crossing it and then waiting out an entire extra refresh,
-+                // which on a high-refresh display costs a whole frame - so stop
-+                // short and let the swap land. With vsync off nothing else paces
-+                // us and the deadline has to be hit exactly.
-+                marginNs = (s_SIM_config.vsyncInterval > 0) ? 2000000 : 0;
++        // With vsync on, the swap below blocks until the next refresh and
++        // is what actually paces us. Sleeping right up to the deadline
++        // risks crossing it and then waiting out an entire extra refresh,
++        // which on a high-refresh display costs a whole frame - so stop
++        // short and let the swap land. With vsync off nothing else paces
++        // us and the deadline has to be hit exactly.
++        marginNs = (s_SIM_config.vsyncInterval > 0) ? 2000000 : 0;
 +
-+                // SDL_Delay only resolves to whole milliseconds and tends to
-+                // overshoot, so sleep the bulk and leave the last millisecond to
-+                // the spin below. The previous code slept a millisecond short and
-+                // then swapped immediately, which made every frame run that much
-+                // fast.
-+                if(remainingNs > marginNs + 1000000) {
-+                    SDL_Delay((Uint32)((remainingNs - marginNs - 1000000) / 1000000));
-+                }
- 
-+                if(marginNs == 0) {
-+                    for(;;) {
-+                        struct timespec spinTime;
-+                        s64 spinElapsedNs;
- 
--            // 60 Fps
--            if(frameNs < 16600000) {
--                u64 frameTimeRemaining = 16600000 - frameNs;
--                u64 frameTimeRemainingMs = frameTimeRemaining / 1000000;
--                if(frameTimeRemainingMs > 1){
--                    SDL_Delay(frameTimeRemainingMs-1);
-+                        clock_gettime(CLOCK_MONOTONIC, &spinTime);
-+                        spinElapsedNs = (((s64)spinTime.tv_sec - (s64)s_SIM_lastFrameEnd.tv_sec) * 1000000000LL)
-+                            + ((s64)spinTime.tv_nsec - (s64)s_SIM_lastFrameEnd.tv_nsec);
-+
-+                        if(spinElapsedNs >= (s64)SIM_DS_FRAME_PERIOD_NS) {
-+                            break;
-+                        }
-+                    }
-                 }
-             }
-         }
- 
-         SDL_GL_SwapWindow(window);
--        clock_gettime(CLOCK_MONOTONIC, &s_SIM_lastFrameEnd);
-+
-+        {
-+            // Measure the whole frame - swap to swap - rather than just the work
-+            // before the pacing. The debug overlay reports this as the frame rate,
-+            // and measuring it before the delay and the swap reported how fast the
-+            // frame could have run rather than how fast it did.
-+            struct timespec frameEnd;
-+
-+            clock_gettime(CLOCK_MONOTONIC, &frameEnd);
-+            s_SIM_frameTime = (u64)((((s64)frameEnd.tv_sec - (s64)s_SIM_lastFrameEnd.tv_sec) * 1000000000LL)
-+                + ((s64)frameEnd.tv_nsec - (s64)s_SIM_lastFrameEnd.tv_nsec));
-+            s_SIM_lastFrameEnd = frameEnd;
++        // SDL_Delay only resolves to whole milliseconds and tends to
++        // overshoot, so sleep the bulk and leave the last millisecond to
++        // the spin below. Sleeping a millisecond short and then swapping
++        // immediately would make every frame run that much fast.
++        if (remainingNs > marginNs + 1000000) {
++          SDL_Delay((Uint32)((remainingNs - marginNs - 1000000) / 1000000));
 +        }
-         #ifdef SDK_TRACY_ENABLE
-         TracyCFrameMark;
-         #endif
++
++        if (marginNs == 0) {
++          for (;;) {
++            struct timespec spinTime;
++            s64 spinElapsedNs;
+ 
+-      // 60 Fps
+-      if (frameNs < 16600000) {
+-        u64 frameTimeRemaining = 16600000 - frameNs;
+-        u64 frameTimeRemainingMs = frameTimeRemaining / 1000000;
+-        if (frameTimeRemainingMs > 1) {
+-          SDL_Delay(frameTimeRemainingMs - 1);
++            clock_gettime(CLOCK_MONOTONIC, &spinTime);
++            spinElapsedNs =
++                (((s64)spinTime.tv_sec - (s64)s_SIM_lastFrameEnd.tv_sec) *
++                 1000000000LL) +
++                ((s64)spinTime.tv_nsec - (s64)s_SIM_lastFrameEnd.tv_nsec);
++
++            if (spinElapsedNs >= (s64)SIM_DS_FRAME_PERIOD_NS) {
++              break;
++            }
++          }
+         }
+       }
+     }
 diff --git a/libraries/sim/src/sim_screenquads.c b/libraries/sim/src/sim_screenquads.c
-index a3803eb..192d9d5 100644
+index a3803eb..5351b70 100644
 --- a/libraries/sim/src/sim_screenquads.c
 +++ b/libraries/sim/src/sim_screenquads.c
 @@ -490,6 +490,99 @@ static G3SIM_Vertex_t s_LargeScreenQuadSwapped[] = {
@@ -829,7 +807,7 @@ index a3803eb..192d9d5 100644
 +// MAIN-engine draw pass and the other half wins during the SUB-engine pass, so this single
 +// array lets both engines' content composite into the same window across the two passes
 +// (MAIN engine drawn opaque first as the base, SUB engine drawn second as a cutout overlay
-+// - see the transparentBackdrop handling in sim_main.c's DrawEngine).
++// - see the transparentBackdrop handling in sim_main.cpp's DrawEngine).
 +static G3SIM_Vertex_t s_MainOnlyCompositeQuad[] = {
 +    {
 +        .x = -1.0f,

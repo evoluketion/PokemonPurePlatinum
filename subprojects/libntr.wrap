@@ -6,7 +6,7 @@ url = https://github.com/cybervisi0n/libntr.git
 # so an unrelated upstream commit could break the build for everyone cloning
 # this repo, at a moment unconnected to anything changing here. Bump this
 # deliberately, re-testing the patch against the new tree when you do.
-revision = 45360b20fa4669c3498dca149c092d23c0b07671
+revision = aa45e528882b447639e42da82ff5631e0adb4fe7
 depth = 1
 directory = libntr
 
