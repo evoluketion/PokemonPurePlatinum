@@ -1200,6 +1200,11 @@ static void ov5_021D6868(UnkStruct_ov5_021D6594 *param0, int param1, u32 param2)
     UnkStruct_ov5_021D69B8 *v0 = param0->unk_00 + param1;
 
     if (v0->unk_10 == 3) {
+        #ifndef SDK_BUILD_ARM
+        if(!v0->unk_08) {
+            return;
+        }
+        #endif
         v0->unk_08->unk_BA6 = 5;
         v0->unk_08->unk_BA4 = param2;
     }
@@ -1267,6 +1272,12 @@ static void ov5_021D68B8(UnkStruct_ov5_021D6594 *param0, int param1)
         Heap_FreeExplicit(HEAP_ID_FIELD1, v0->unk_08);
         v0->unk_08 = NULL;
     }
+
+    #ifdef SDK_PORT
+    v0->unk_10 = 0;
+    v0->unk_12 = 0;
+    v0->unk_14 = NULL;
+    #endif
 
     FogManager_ApplyParameters(param0->fieldSystem->fogMan, FOG_PARAMETER_ENABLED, FALSE, GX_FOGBLEND_COLOR_ALPHA, GX_FOGSLOPE_0x8000, 0);
 }
@@ -1502,7 +1513,7 @@ static void ov5_021D6D84(UnkStruct_ov5_021D6594 *param0, int param1)
 
         NNS_G2dGetUnpackedPaletteData(v0.unk_00, &v0.unk_14);
 
-        Bg_LoadPalette(2, v0.unk_14->pRawData, 32, 32 * 6);
+        Bg_LoadPalette(BG_LAYER_MAIN_2, v0.unk_14->pRawData, PALETTE_SIZE_BYTES, PLTT_OFFSET(6));
         Heap_Free(v0.unk_00);
 
         v0.unk_00 = NULL;
@@ -4684,11 +4695,11 @@ static void ov5_021DA748(SysTask *param0, void *param1)
                 if ((MTRNG_Next() % 3) != 0) {
                     v1[2] = 36;
 
-                    Sound_PlayEffect(SEQ_SE_DP_T_KAMI2);
+                    Sound_PlayEffect(SEQ_SE_DP_T_KAMI2_sseq);
                 } else {
                     v1[2] = 200;
 
-                    Sound_PlayEffect(SEQ_SE_DP_T_KAMI);
+                    Sound_PlayEffect(SEQ_SE_DP_T_KAMI_sseq);
                 }
                 break;
             case 1:

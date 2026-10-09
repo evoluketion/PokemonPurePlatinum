@@ -26,6 +26,7 @@
 #include "struct_defs/sprite_animation_frame.h"
 #include "struct_defs/struct_02078B40.h"
 
+#include "ball_seal_info.h"
 #include "charcode_util.h"
 #include "flags.h"
 #include "heap.h"
@@ -50,7 +51,6 @@
 #include "trainer_data.h"
 #include "trainer_info.h"
 #include "unk_02017038.h"
-#include "unk_0202C9F4.h"
 #include "unk_02092494.h"
 
 #include "res/pokemon/regional_pokedex_size.h"
@@ -265,8 +265,8 @@ static u32 Pokemon_GetExpRateBaseExpAt(enum ExpRate monExpRate, int monLevel);
 static u16 Pokemon_GetNatureStatValue(u8 monNature, u16 monStatValue, u8 statType);
 static u8 BoxPokemon_IsShiny(BoxPokemon *boxMon);
 static inline BOOL Pokemon_InlineIsPersonalityShiny(u32 monOTID, u32 monPersonality);
-static void BuildPokemonSpriteTemplateDP(PokemonSpriteTemplate *spriteTemplate, u16 monSpecies, u8 monGender, u8 param3, u8 monShininess, u8 monForm, u32 monPersonality);
-static u8 LoadPokemonDPSpriteHeight(u16 monSpecies, u8 monGender, u8 param2, u8 monForm, u32 monPersonality);
+static void BuildPokemonSpriteTemplateDP(PokemonSpriteTemplate *spriteTemplate, u16 species, u8 gender, u8 face, u8 shiny, u8 form, u32 personality);
+static u8 LoadPokemonDPSpriteHeight(u16 species, u8 gender, u8 face, u8 form, u32 personality);
 static void BoxPokemon_SetDefaultMoves(BoxPokemon *boxMon);
 static u16 BoxPokemon_AddMove(BoxPokemon *boxMon, u16 moveID);
 static void BoxPokemon_ReplaceMove(BoxPokemon *boxMon, u16 moveID);
@@ -275,19 +275,19 @@ static BOOL Pokemon_HasMove(Pokemon *mon, u16 moveID);
 static s8 BoxPokemon_GetFlavorAffinity(BoxPokemon *boxMon, enum Flavor flavor);
 static BOOL IsBoxPokemonInfectedWithPokerus(BoxPokemon *boxMon);
 static BOOL BoxPokemonHasCuredPokerus(BoxPokemon *boxMon);
-static void InitializeBoxPokemonAfterCapture(BoxPokemon *boxMon, TrainerInfo *trainerInfo, int monPokeball, int metLocation, int metTerrain, enum HeapID heapID);
-static void PostCaptureBoxPokemonProcessing(BoxPokemon *boxMon, TrainerInfo *param1, int monPokeball, int param3, int param4, int param5);
+static void InitializeBoxPokemonAfterCapture(BoxPokemon *boxMon, TrainerInfo *trainer, int monPokeball, int metLocation, int metTerrain, enum HeapID heapID);
+static void PostCaptureBoxPokemonProcessing(BoxPokemon *boxMon, TrainerInfo *trainer, int monPokeball, int metLocation, int metTerrain, int heapID);
 static BOOL CanBoxPokemonLearnTM(BoxPokemon *boxMon, u8 tmID);
 static void BoxPokemon_CalcAbility(BoxPokemon *boxMon);
 static void SpeciesData_LoadSpecies(int monSpecies, SpeciesData *speciesData);
 static void SpeciesData_LoadForm(int monSpecies, int monForm, SpeciesData *speciesData);
-static void LoadSpeciesEvolutions(int monSpecies, SpeciesEvolution speciesEvolution[MAX_EVOLUTIONS]);
+static void LoadSpeciesEvolutions(int monSpecies, SpeciesEvolution speciesEvolutions[MAX_EVOLUTIONS]);
 static void Pokemon_EncryptData(void *data, u32 bytes, u32 seed);
 static void Pokemon_DecryptData(void *data, u32 bytes, u32 seed);
 static u16 Pokemon_GetDataChecksum(void *data, u32 bytes);
 static void *BoxPokemon_GetDataBlock(BoxPokemon *boxMon, u32 personality, enum PokemonDataBlockID dataBlockID);
 static int Pokemon_GetFormNarcIndex(int monSpecies, int monForm);
-static inline int Pokemon_Face(int num);
+static inline int Pokemon_Face(int clientType);
 
 void Pokemon_Init(Pokemon *mon)
 {
@@ -649,6 +649,12 @@ void Pokemon_CalcStats(Pokemon *mon)
 
 u32 Pokemon_GetValue(Pokemon *mon, enum PokemonDataParam param, void *dest)
 {
+    #ifdef SDK_PORT
+    if(!mon) {
+        GF_ASSERT(FALSE);
+        return 0;
+    }
+    #endif
     if (mon->box.partyDecrypted == FALSE) {
         Pokemon_DecryptData(&mon->party, sizeof(PartyPokemon), mon->box.personality);
         Pokemon_DecryptData(&mon->box.dataBlocks, sizeof(PokemonDataBlock) * 4, mon->box.checksum);
@@ -4657,14 +4663,14 @@ static void InitializeBoxPokemonAfterCapture(BoxPokemon *boxMon, TrainerInfo *tr
     BoxPokemon_SetValue(boxMon, MON_DATA_MET_TERRAIN, &metTerrain);
 }
 
-void Pokemon_UpdateAfterCatch(Pokemon *mon, TrainerInfo *param1, int monPokeball, int param3, int param4, int param5)
+void Pokemon_UpdateAfterCatch(Pokemon *mon, TrainerInfo *trainer, int monPokeball, int metLocation, int metTerrain, int heapID)
 {
-    PostCaptureBoxPokemonProcessing(&mon->box, param1, monPokeball, param3, param4, param5);
+    PostCaptureBoxPokemonProcessing(&mon->box, trainer, monPokeball, metLocation, metTerrain, heapID);
 }
 
-static void PostCaptureBoxPokemonProcessing(BoxPokemon *boxMon, TrainerInfo *param1, int monPokeball, int param3, int param4, int param5)
+static void PostCaptureBoxPokemonProcessing(BoxPokemon *boxMon, TrainerInfo *trainer, int monPokeball, int metLocation, int metTerrain, int heapID)
 {
-    InitializeBoxPokemonAfterCapture(boxMon, param1, monPokeball, param3, param4, param5);
+    InitializeBoxPokemonAfterCapture(boxMon, trainer, monPokeball, metLocation, metTerrain, heapID);
 }
 
 static const u16 sHeldItemChance[][2] = {

@@ -3,6 +3,10 @@
 
 #include <nitro/types.h>
 
+#ifdef __cplusplus
+extern "C" {
+#endif
+
 typedef struct {
     BOOL enable60fps; // When true, unlock the framerate to 60fps
     BOOL enable60fpsSpeedFix; // When enabled, fixes things in the game that run at double speed due to being at 60fps
@@ -37,5 +41,9 @@ BOOL SIM_Config_prj_GetForce30FpsLogic(void);
 // 30Hz rate back on via SIM_Config_prj_SetForce30FpsLogic is already running at
 // the original rate, and halving as well would run it at half speed.
 BOOL SIM_Config_prj_IsLogicRateDoubled(void);
+
+#ifdef __cplusplus
+}
+#endif
 
 #endif
