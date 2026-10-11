@@ -12,6 +12,19 @@ index 7d69fe7..c0471e9 100644
  } SIM_config_screen_layout_type;
  
  #define SIM_CONFIG_JOY_HAT_MASK (0x10000)
+diff --git a/include/simulator/g3_handler.h b/include/simulator/g3_handler.h
+index 6e87d9a..88299ed 100644
+--- a/include/simulator/g3_handler.h
++++ b/include/simulator/g3_handler.h
+@@ -135,6 +135,8 @@ void G3SIM_MtxStore(u8 idx);
+ void G3SIM_MtxTranslate(fx32* trans);
+ void G3SIM_Normal(u32 data);
+ void G3SIM_PolygonAttr(u32 data);
++void G3SIM_ApplyCullMode(u8 cullMode);
++void G3SIM_ApplyDepthTest(u8 depthTest);
+ void G3SIM_SpecEmi(u32 data);
+ void G3SIM_SwapBuffers(u8 depthBufferMode);
+ void G3SIM_TexCoord(u32 data);
 diff --git a/include/simulator/sim.h b/include/simulator/sim.h
 index 43f57f1..c7b2725 100644
 --- a/include/simulator/sim.h
@@ -136,8 +149,206 @@ index f6e6922..f295c47 100644
      return ret;
  }
  
+diff --git a/libraries/sim/src/g3_draw.cpp b/libraries/sim/src/g3_draw.cpp
+index 2cb19b4..c093c87 100644
+--- a/libraries/sim/src/g3_draw.cpp
++++ b/libraries/sim/src/g3_draw.cpp
+@@ -1,4 +1,5 @@
+ #include <simulator/g3_draw.h>
++extern u8 s_SIM_useWBuffer;
+ 
+ #include <simulator/g3_handler.h>
+ #include <simulator/assert.h>
+@@ -157,7 +158,7 @@ void G3SIM_DrawInit()
+ 	glEnableVertexAttribArray(0);
+     glEnableVertexAttribArray(1);
+ 	glEnableVertexAttribArray(2);
+-	glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, sizeof(G3SIM_Vertex_t), (void*)offsetof(G3SIM_Vertex_t, x));
++	glVertexAttribPointer(0, 4, GL_FLOAT, GL_FALSE, sizeof(G3SIM_Vertex_t), (void*)offsetof(G3SIM_Vertex_t, x));
+     glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, sizeof(G3SIM_Vertex_t), (void*)offsetof(G3SIM_Vertex_t, s));
+ 	glVertexAttribPointer(2, 4, GL_FLOAT, GL_FALSE, sizeof(G3SIM_Vertex_t), (void*)offsetof(G3SIM_Vertex_t, r));
+ 
+@@ -284,6 +285,7 @@ void G3SIM_FlushArray()
+ 	// Set the polygon mode in the shader
+ 	GLint polygonModeLoc = glGetUniformLocation(g3shaderProgramID, "polygonMode");
+ 	glProgramUniform1i(g3shaderProgramID, polygonModeLoc , s_curPolygonAttr.polygonMode);
++	glProgramUniform1i(g3shaderProgramID, glGetUniformLocation(g3shaderProgramID, "useWBuffer"), s_SIM_useWBuffer);
+ 
+ 	// Set the fog attributes in the shader
+ 	GLint useFogLoc = glGetUniformLocation(g3shaderProgramID, "useFog");
+@@ -403,6 +405,19 @@ void G3SIM_DrawItems()
+ 		// Set the polygon mode in the shader
+ 		GLint polygonModeLoc = glGetUniformLocation(g3shaderProgramID, "polygonMode");
+ 		glProgramUniform1i(g3shaderProgramID, polygonModeLoc, item->polygonAttr.polygonMode);
++		glProgramUniform1i(g3shaderProgramID, glGetUniformLocation(g3shaderProgramID, "useWBuffer"), s_SIM_useWBuffer);
++
++		// The live cull/depth state belongs to whatever POLYGON_ATTR came last
++		// this frame, not to this item.
++		G3SIM_ApplyCullMode(item->polygonAttr.cullMode);
++		G3SIM_ApplyDepthTest(item->polygonAttr.depthTest);
++
++		// Translucent polygons only update the depth buffer when their
++		// POLYGON_ATTR asks for it. Writing it unconditionally made overlapping
++		// translucent polygons at the same depth - particles in particular,
++		// which all sit on one plane - cut holes in each other wherever an
++		// earlier one's faint edge had already claimed the depth.
++		glDepthMask(item->polygonAttr.translucentDepth ? GL_TRUE : GL_FALSE);
+ 
+ 		glBindVertexArray(s_G3DrawVertexArray);
+ 		glBindBuffer(GL_ARRAY_BUFFER, s_G3DrawVertexBuffer);
+@@ -411,5 +426,13 @@ void G3SIM_DrawItems()
+ 
+ 		free(item->verts);
+ 	}
++
++	if(s_G3DrawItemListCount != 0) {
++		G3SIM_ApplyCullMode(s_curPolygonAttr.cullMode);
++		G3SIM_ApplyDepthTest(s_curPolygonAttr.depthTest);
++		// Opaque polygons always write depth, and glClear skips the depth
++		// buffer while writes are masked off.
++		glDepthMask(GL_TRUE);
++	}
+ 	s_G3DrawItemListCount = 0;
+ }
+\ No newline at end of file
+diff --git a/libraries/sim/src/g3_handler.cpp b/libraries/sim/src/g3_handler.cpp
+index 1ded67d..56b7a20 100644
+--- a/libraries/sim/src/g3_handler.cpp
++++ b/libraries/sim/src/g3_handler.cpp
+@@ -1418,6 +1418,40 @@ void G3SIM_Normal(u32 data)
+     s_g3CurColor[2] = (u8)(color[2] * 255.0f);
+ }
+ 
++// GL state for a polygon's cull mode and depth test. Split out of
++// G3SIM_PolygonAttr because translucent polygons are deferred to the end of the
++// frame (G3SIM_DrawItems), by which point later POLYGON_ATTR commands have
++// changed the live GL state - each deferred item has to re-apply its own.
++void G3SIM_ApplyCullMode(u8 cullMode)
++{
++    switch(cullMode) {
++        case GX_CULL_ALL:
++            glEnable( GL_CULL_FACE );
++            glCullFace(GL_FRONT_AND_BACK);
++            break;
++        case GX_CULL_FRONT:
++            glEnable( GL_CULL_FACE );
++            glCullFace(GL_BACK);
++            break;
++        case GX_CULL_BACK:
++            glEnable( GL_CULL_FACE );
++            glCullFace(GL_FRONT);
++            break;
++        case GX_CULL_NONE:
++            glDisable( GL_CULL_FACE );
++            break;
++    }
++}
++
++void G3SIM_ApplyDepthTest(u8 depthTest)
++{
++    if(depthTest){
++        glDepthFunc(GL_LEQUAL);
++    } else {
++        glDepthFunc(GL_LESS);
++    }
++}
++
+ //PolygonAttr
+ void G3SIM_PolygonAttr(u32 data)
+ {
+@@ -1426,6 +1460,7 @@ void G3SIM_PolygonAttr(u32 data)
+     u8 polygonMode = (data & 0b110000) >> 4;
+     u8 cullMode = (data & 0b11000000) >> 6;
+     u8 depthTest = (data & 0b100000000000000) >> 14;
++    u8 translucentDepth = (data >> 11) & 1;
+     u8 useFog = (data & 0b1000000000000000) >> 15;
+ 
+     if(cullMode != s_curPolygonAttr.cullMode || polygonMode != s_curPolygonAttr.polygonMode || alpha != s_curPolygonAttr.alphaInt || depthTest != s_curPolygonAttr.depthTest || useFog != s_curPolygonAttr.fogEnable)
+@@ -1436,11 +1471,7 @@ void G3SIM_PolygonAttr(u32 data)
+ 
+     if(depthTest != s_curPolygonAttr.depthTest)
+     {
+-        if(depthTest){
+-            glDepthFunc(GL_LEQUAL);
+-        } else {
+-            glDepthFunc(GL_LESS);
+-        }
++        G3SIM_ApplyDepthTest(depthTest);
+     }
+ 
+     s_curPolygonAttr.lightFlag = lightFlag;
+@@ -1449,6 +1480,7 @@ void G3SIM_PolygonAttr(u32 data)
+     s_curPolygonAttr.alphaInt = alpha;
+     s_curPolygonAttr.depthTest = depthTest;
+     s_curPolygonAttr.fogEnable = useFog;
++    s_curPolygonAttr.translucentDepth = translucentDepth;
+ 
+     if(alpha == 31){
+         s_curPolygonAttr.alpha = 1.0f;
+@@ -1456,24 +1488,7 @@ void G3SIM_PolygonAttr(u32 data)
+         s_curPolygonAttr.alpha = (float)alpha / 31.0f;
+     }
+ 
+-    switch(cullMode) {
+-        case GX_CULL_ALL:
+-            glEnable( GL_CULL_FACE );
+-            glCullFace(GL_FRONT_AND_BACK);
+-            break;
+-        case GX_CULL_FRONT:
+-            glEnable( GL_CULL_FACE );
+-            glCullFace(GL_BACK);
+-            break;
+-        case GX_CULL_BACK:
+-            glEnable( GL_CULL_FACE );
+-            glCullFace(GL_FRONT);
+-            break;
+-        case GX_CULL_NONE:
+-            glDisable( GL_CULL_FACE );
+-            break;
+-    }
+-
++    G3SIM_ApplyCullMode(cullMode);
+ 
+     return;
+ }
+@@ -1681,6 +1696,9 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+     
+         glVerts[i].x = screenX;
+         glVerts[i].y = screenY;
++        // The real clip-space W, so the GPU can interpolate perspective-
++        // correctly (see g3_vertex.glsl). x and y above are already divided.
++        glVerts[i].w = floatW;
+         glVerts[i].s = curVtx->s;
+         glVerts[i].t = curVtx->t;
+         glVerts[i].r = curVtx->r;
+@@ -1691,7 +1709,7 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+ 
+     // Get the W size and remove the polygon if W is 0
+     u32 wsize = 0;
+-    for(int i=0; i < 4; i++) {
++    for(int i=0; i < numVerts; i++) {
+         G3SIM_FxVtx_t * curVtx = &fxVerts[i];
+         u32 w = curVtx->w;
+         if(w == 0){
+@@ -1703,7 +1721,7 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+     }
+ 
+     // Normalize W
+-    for(int i=0; i < 4; i++) {
++    for(int i=0; i < numVerts; i++) {
+         G3SIM_FxVtx_t * curVtx = &fxVerts[i];
+         
+         s32 w, wshifted;
+@@ -1735,7 +1753,6 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+         }
+         
+         glVerts[i].z = (((float)z / 16777215.0f) * 2.0f) - 1.0f;
+-        glVerts[i].w = (((float)w / 16777215.0f) * 2.0f) - 1.0f;
+     }
+ 
+     // If we have a quad, convert it into 2 triangles
 diff --git a/libraries/sim/src/shaders/g2_fragment.glsl b/libraries/sim/src/shaders/g2_fragment.glsl
-index b652bd5..796793a 100644
+index b652bd5..01554fc 100644
 --- a/libraries/sim/src/shaders/g2_fragment.glsl
 +++ b/libraries/sim/src/shaders/g2_fragment.glsl
 @@ -15,6 +15,17 @@ uniform vec4 backdropColor;
@@ -222,9 +433,36 @@ index b652bd5..796793a 100644
          {
              // Inside the window
              if(((winout >> (bgNum+8)) & 1) == 0) {
-@@ -61,59 +105,59 @@ void main()
+@@ -60,60 +104,86 @@ void main()
+                 continue;
              }
          }
++        // Translucent 3D pixels. The 3D buffer holds color already multiplied
++        // by its alpha (it was blended over a cleared black buffer), with alpha
++        // as coverage. On hardware a translucent 3D pixel is alpha blended
++        // with whatever is below it whenever that layer is a 2nd blend target,
++        // regardless of the BLDCNT effect, and is otherwise drawn as-is.
++        // Fully opaque 3D pixels fall through to the normal path below.
++        if(bgNum == 0 && bg0as3d != 0) {
++            vec4 c3d = texture(bgTexture[0], sampleCoord);
++            if(c3d.a > 0.004 && c3d.a < 0.996) {
++                vec3 straight = min(vec3(1.0), c3d.rgb / c3d.a);
++                if(currentBgDrawn == 5 && transparentBackdrop == 1) {
++                    // Nothing underneath in a cutout pass: leave the coverage
++                    // in alpha so the composite blends it over the base.
++                    color = vec4(straight, c3d.a);
++                } else if(((bldcnt >> (8+currentBgDrawn)) & 1) == 1) {
++                    vec3 below = (currentBgDrawn == 5) ? backdropColor.rgb : color.rgb;
++                    color.rgb = min(vec3(1.0), c3d.rgb + below * (1.0 - c3d.a));
++                    color.a = 1.0;
++                } else {
++                    color.rgb = straight;
++                    color.a = 1.0;
++                }
++                currentBgDrawn = 0;
++                continue;
++            }
++        }
          // Draw the current bg
 -        if(texture(bgTexture[bgNum], fragTexCoord).a > 0.1) {
 +        if(texture(bgTexture[bgNum], sampleCoord).a > 0.1) {
@@ -304,7 +542,7 @@ index b652bd5..796793a 100644
                  color.a = 1.0;
                  currentBgDrawn = bgNum;
              }
-@@ -121,13 +165,62 @@ void main()
+@@ -121,13 +191,62 @@ void main()
      }
      //Draw the remaining objs
      for(int i=3-oamsDrawn; i>=0; i--) {
@@ -370,6 +608,74 @@ index b652bd5..796793a 100644
      }
      
      if(inMasterBrightMode == 1) {
+diff --git a/libraries/sim/src/shaders/g3_fragment.glsl b/libraries/sim/src/shaders/g3_fragment.glsl
+index ffd028a..148bba4 100644
+--- a/libraries/sim/src/shaders/g3_fragment.glsl
++++ b/libraries/sim/src/shaders/g3_fragment.glsl
+@@ -4,6 +4,7 @@ R""(
+ uniform sampler2D myTexture;
+ uniform int useTexture;
+ uniform int polygonMode;
++uniform int useWBuffer;
+ uniform int useFog;
+ uniform vec4 fogColor;
+ uniform float fogDepthBoundary[32];
+@@ -11,6 +12,7 @@ uniform float fogDensity[32];
+ smooth in vec2 fragTexCoord;
+ smooth in vec4 fragInColor;
+ smooth in vec4 coords;
++smooth in float wDepth;
+ out vec4 color;
+ 
+ void main()
+@@ -59,5 +61,13 @@ void main()
+     } else {
+      color = shadedColor;
+     }
++
++    // W-buffer depth is linear in W, so it has to come from the
++    // perspective-correct wDepth rather than the screen-linear default.
++    if(useWBuffer == 1) {
++        gl_FragDepth = wDepth * 0.5 + 0.5;
++    } else {
++        gl_FragDepth = gl_FragCoord.z;
++    }
+ }
+ )""
+\ No newline at end of file
+diff --git a/libraries/sim/src/shaders/g3_vertex.glsl b/libraries/sim/src/shaders/g3_vertex.glsl
+index e994013..55d5ae0 100644
+--- a/libraries/sim/src/shaders/g3_vertex.glsl
++++ b/libraries/sim/src/shaders/g3_vertex.glsl
+@@ -1,17 +1,26 @@
+ R""(
+ #version 420 core
+ 
+-layout (location = 0) in vec3 position;
++// xyz are already divided by W on the CPU; w is the real clip-space W.
++layout (location = 0) in vec4 position;
+ layout (location = 1) in vec2 texCoord;
+ layout (location = 2) in vec4 inColor;
+ 
+ smooth out vec2 fragTexCoord;
+ smooth out vec4 fragInColor;
+ smooth out vec4 coords;
++smooth out float wDepth;
+ 
+ void main()
+ {
+-    gl_Position = vec4(position.x, position.y, position.z, 1.0);
++    // Undo the divide so the GPU sees the real W. The screen position is
++    // unchanged, but texture coordinates, color and depth now interpolate
++    // perspective-correctly, as on hardware, instead of linearly in screen
++    // space - which warped textures and depth across large polygons.
++    gl_Position = vec4(position.xyz * position.w, position.w);
++    // In W-buffer mode position.z holds W (scaled), so interpolating it
++    // perspective-correctly gives the true per-pixel W the DS compares.
++    wDepth = position.z;
+     coords = vec4(position.x, position.y, position.z, 1.0);
+     fragTexCoord = vec2(texCoord.x, texCoord.y);
+     fragInColor = inColor;
 diff --git a/libraries/sim/src/sim_gui.cpp b/libraries/sim/src/sim_gui.cpp
 index 95b3b71..f0cb09c 100644
 --- a/libraries/sim/src/sim_gui.cpp
@@ -496,7 +802,7 @@ index 4303244..f9c7eb7 100644
  }
 \ No newline at end of file
 diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
-index ef55838..c956f94 100644
+index ef55838..c2fa1b6 100644
 --- a/libraries/sim/src/sim_main.cpp
 +++ b/libraries/sim/src/sim_main.cpp
 @@ -65,6 +65,19 @@ extern "C" int NitroSpMain(void *arg);
@@ -656,7 +962,17 @@ index ef55838..c956f94 100644
    // Pass master bright info to the shader
    float masterBrightFactor = isSub
                                   ? (float)(s_reg_GXS_DB_MASTER_BRIGHT & 0b11111)
-@@ -974,6 +1089,9 @@ void *SIM_Render(void *arg) {
+@@ -947,6 +1062,9 @@ void *SIM_Render(void *arg) {
+     // Unbind 3D Framebuffer
+     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+     glBindRenderbuffer(GL_RENDERBUFFER, 0);
++
++    // Back to plain alpha blending for the 2D composite - see the 3D bind below.
++    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+     glUseProgram(g2shaderProgramID);
+ 
+     glDisable(GL_DEPTH_TEST);
+@@ -974,6 +1092,9 @@ void *SIM_Render(void *arg) {
      case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
        aspectRatio = 768.0f / 384.0f;
        break;
@@ -666,7 +982,7 @@ index ef55838..c956f94 100644
      }
  
      viewWidth = windowWidth;
-@@ -1011,6 +1129,14 @@ void *SIM_Render(void *arg) {
+@@ -1011,6 +1132,14 @@ void *SIM_Render(void *arg) {
          s_TouchPanelCoords[2] = viewX + ((viewWidth / 3) * 2);
          s_TouchPanelCoords[3] = viewY + viewHeight;
          break;
@@ -681,7 +997,7 @@ index ef55838..c956f94 100644
        }
      } else {
        switch (s_SIM_config.screenLayout) {
-@@ -1033,6 +1159,14 @@ void *SIM_Render(void *arg) {
+@@ -1033,6 +1162,14 @@ void *SIM_Render(void *arg) {
          s_TouchPanelCoords[2] = viewX + viewWidth;
          s_TouchPanelCoords[3] = viewY + viewHeight;
          break;
@@ -696,7 +1012,7 @@ index ef55838..c956f94 100644
        }
      }
  
-@@ -1229,7 +1363,12 @@ void *SIM_Render(void *arg) {
+@@ -1229,7 +1366,12 @@ void *SIM_Render(void *arg) {
      SDL_GetMouseState(&x, &y);
  
      // Convert touch coordinate to DS screen coordinates
@@ -710,7 +1026,7 @@ index ef55838..c956f94 100644
          y >= s_TouchPanelCoords[1] && y <= s_TouchPanelCoords[3]) {
        s_tpData.x = (u16)map(x, s_TouchPanelCoords[0], s_TouchPanelCoords[2], 0,
                              SIM_NDS_SCREEN_WIDTH);
-@@ -1262,11 +1401,23 @@ void *SIM_Render(void *arg) {
+@@ -1262,11 +1404,23 @@ void *SIM_Render(void *arg) {
      memset(bg3stex, 0,
             sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2);
  
@@ -739,7 +1055,7 @@ index ef55838..c956f94 100644
  
      // Run HBlank Interrupt
      OS_IRQTable[OS_IE_H_BLANK - 1]();
-@@ -1289,15 +1440,46 @@ void *SIM_Render(void *arg) {
+@@ -1289,15 +1443,46 @@ void *SIM_Render(void *arg) {
  #ifdef SDK_TRACY_ENABLE
      TracyCZoneEnd(SimRenderZone);
  #endif
@@ -768,11 +1084,6 @@ index ef55838..c956f94 100644
 +        if (remainingNs > marginNs + 1000000) {
 +          SDL_Delay((Uint32)((remainingNs - marginNs - 1000000) / 1000000));
 +        }
-+
-+        if (marginNs == 0) {
-+          for (;;) {
-+            struct timespec spinTime;
-+            s64 spinElapsedNs;
  
 -      // 60 Fps
 -      if (frameNs < 16600000) {
@@ -780,6 +1091,11 @@ index ef55838..c956f94 100644
 -        u64 frameTimeRemainingMs = frameTimeRemaining / 1000000;
 -        if (frameTimeRemainingMs > 1) {
 -          SDL_Delay(frameTimeRemainingMs - 1);
++        if (marginNs == 0) {
++          for (;;) {
++            struct timespec spinTime;
++            s64 spinElapsedNs;
++
 +            clock_gettime(CLOCK_MONOTONIC, &spinTime);
 +            spinElapsedNs =
 +                (((s64)spinTime.tv_sec - (s64)s_SIM_lastFrameEnd.tv_sec) *
@@ -793,6 +1109,22 @@ index ef55838..c956f94 100644
          }
        }
      }
+@@ -1333,6 +1518,15 @@ void *SIM_Render(void *arg) {
+   glBindFramebuffer(GL_FRAMEBUFFER, g3FrameBuffer);
+   glBindRenderbuffer(GL_RENDERBUFFER, g3RenderBufferId);
+ 
++  // The 3D output is composited onto the 2D layers afterwards using its alpha,
++  // so that alpha has to mean coverage. Blending alpha with the same factors as
++  // color squares it - a 0.3 alpha particle drawn over the cleared buffer lands
++  // as 0.09 - which made faint translucent effects (particle glows, shadows)
++  // vanish under the 2D shader's visibility threshold. Accumulate it the
++  // standard way instead; color blending is unchanged.
++  glBlendFuncSeparate(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA, GL_ONE,
++                      GL_ONE_MINUS_SRC_ALPHA);
++
+   // Setup 3D Viewport
+   if (s_reg_GX_POWCNT >> 15) {
+     glViewport(0, SIM_NDS_SCREEN_HEIGHT * s_SIM_config.internalResolutionScale,
 diff --git a/libraries/sim/src/sim_screenquads.c b/libraries/sim/src/sim_screenquads.c
 index a3803eb..5351b70 100644
 --- a/libraries/sim/src/sim_screenquads.c
