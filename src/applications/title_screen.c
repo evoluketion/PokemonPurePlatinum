@@ -33,6 +33,8 @@
 #include "text.h"
 #include "unk_0202419C.h"
 
+#include "port/sim_config_prj.h"
+
 #include "res/graphics/title_screen/titledemo.naix"
 #include "res/text/bank/title_screen.h"
 
@@ -319,6 +321,15 @@ static inline void DisableAllLayers(void)
 
 static BOOL TitleScreen_Init(ApplicationManager *appMan, int *unused)
 {
+#ifdef SDK_PORT
+    // Everything here is stepped once per logic frame - Giratina's hover angle,
+    // its model and texture animations, the portal animations, the input
+    // delay and the timer that replays the opening - so at the 60 FPS option's
+    // doubled logic rate the whole screen runs at twice the speed. Hold the
+    // original 30Hz rate for the duration, as the opening cutscene does.
+    SIM_Config_prj_SetForce30FpsLogic(TRUE);
+#endif
+
     SetScreenColorBrightness(DS_SCREEN_MAIN, COLOR_BLACK);
     SetScreenColorBrightness(DS_SCREEN_SUB, COLOR_BLACK);
 
@@ -498,6 +509,11 @@ static BOOL TitleScreen_Exit(ApplicationManager *appMan, int *state)
 
     // Reset so later screens aren't left with the title screen's framing.
     SIM_ResetMainOnlyPlacements();
+
+#ifdef SDK_PORT
+    // Hand the frame rate back - the override is only for this screen.
+    SIM_Config_prj_SetForce30FpsLogic(FALSE);
+#endif
 
     SetVBlankCallback(NULL, NULL);
 
