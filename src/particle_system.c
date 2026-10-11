@@ -1,6 +1,11 @@
 #include "particle_system.h"
 
+#ifdef SDK_PORT
+#include "particle_system_debug.h"
+#endif
+
 #include <nitro.h>
+#include <stdio.h>
 #include <nitro/fx/fx_trig.h>
 #include <string.h>
 
@@ -442,6 +447,102 @@ void ParticleSystem_Update(ParticleSystem *particleSystem)
     SPLManager_Update(particleSystem->manager);
 }
 
+#ifdef SDK_PORT
+int ParticleSystem_DebugSnapshot(ParticleSystemDebugInfo *out, int maxCount)
+{
+    int n = 0;
+
+    for (int i = 0; i < MAX_PARTICLE_SYSTEMS && n < maxCount; i++) {
+        ParticleSystem *particleSystem = sParticleSystems[i];
+
+        if (particleSystem == NULL) {
+            continue;
+        }
+
+        SPLManager *manager = particleSystem->manager;
+
+        out[n].systemIndex = i;
+        out[n].emitterCount = manager->activeEmitters.count;
+        out[n].particleCount = 0;
+        out[n].childParticleCount = 0;
+        out[n].visibleCount = 0;
+        out[n].childCapableCount = 0;
+
+        for (SPLEmitter *emitter = manager->activeEmitters.first; emitter != NULL; emitter = emitter->next) {
+            out[n].particleCount += emitter->particles.count;
+            out[n].childParticleCount += emitter->childParticles.count;
+
+            if (emitter->resource->header->flags.hasChildResource) {
+                out[n].childCapableCount++;
+            }
+
+            // Mirrors the alpha SPLDraw_Setup computes and skips the particle on.
+            for (SPLParticle *particle = emitter->particles.first; particle != NULL; particle = particle->next) {
+                if (((particle->visibility.baseAlpha * (particle->visibility.animAlpha + 1)) >> 5) != 0) {
+                    out[n].visibleCount++;
+                }
+            }
+        }
+
+        n++;
+    }
+
+    return n;
+}
+
+int ParticleSystem_DebugEmitters(EmitterDebugInfo *out, int maxCount)
+{
+    int n = 0;
+
+    for (int i = 0; i < MAX_PARTICLE_SYSTEMS && n < maxCount; i++) {
+        ParticleSystem *particleSystem = sParticleSystems[i];
+
+        if (particleSystem == NULL) {
+            continue;
+        }
+
+        SPLManager *manager = particleSystem->manager;
+
+        for (SPLEmitter *emitter = manager->activeEmitters.first; emitter != NULL && n < maxCount; emitter = emitter->next) {
+            SPLResourceHeader *header = emitter->resource->header;
+            SPLParticle *particle = emitter->particles.first;
+
+            out[n].systemIndex = i;
+            out[n].drawType = header->flags.drawType;
+            out[n].textureIndex = header->misc.textureIndex;
+            out[n].particleCount = emitter->particles.count;
+
+            if (particle != NULL) {
+                out[n].posX = (float)particle->position.x / (float)FX32_ONE;
+                out[n].posY = (float)particle->position.y / (float)FX32_ONE;
+                out[n].posZ = (float)particle->position.z / (float)FX32_ONE;
+                out[n].baseScale = (float)particle->baseScale / (float)FX32_ONE;
+                out[n].animScale = (float)particle->animScale / (float)FX16_ONE;
+                out[n].alpha = (particle->visibility.baseAlpha * (particle->visibility.animAlpha + 1)) >> 5;
+            } else {
+                out[n].posX = out[n].posY = out[n].posZ = 0.0f;
+                out[n].baseScale = out[n].animScale = 0.0f;
+                out[n].alpha = 0;
+            }
+
+            {
+                SPLTexture *texture = manager->textures + header->misc.textureIndex;
+
+                out[n].texAddr = (unsigned int)texture->texAddr;
+                out[n].palAddr = (unsigned int)texture->palAddr;
+                out[n].texFormat = texture->param.format;
+                out[n].texWidth = texture->width;
+                out[n].texHeight = texture->height;
+            }
+
+            n++;
+        }
+    }
+
+    return n;
+}
+#endif
+
 int ParticleSystem_GetActiveAmount(void)
 {
     int count = 0;
@@ -454,6 +555,62 @@ int ParticleSystem_GetActiveAmount(void)
     return count;
 }
 
+#ifdef SDK_PORT
+// Dumps live emitter state to ParticleLog.txt next to the executable, one line
+// per emitter per frame, for any frame where something is emitting. Reading this
+// back is far quicker than driving the on-screen panel through a cutscene by
+// hand, and it catches effects too brief to pause on.
+static void ParticleSystem_DebugLog(void)
+{
+    static FILE *logFile = NULL;
+    static BOOL logFailed = FALSE;
+    static int frame = 0;
+    static int lines = 0;
+
+    EmitterDebugInfo emitters[16];
+    int count;
+
+    frame++;
+
+    // Don't let a long session fill the disk.
+    if (logFailed || lines > 400000) {
+        return;
+    }
+
+    count = ParticleSystem_DebugEmitters(emitters, 16);
+
+    if (count == 0) {
+        return;
+    }
+
+    if (logFile == NULL) {
+        logFile = fopen("ParticleLog.txt", "w");
+
+        if (logFile == NULL) {
+            logFailed = TRUE;
+            return;
+        }
+
+        fprintf(logFile, "# frame sys draw tex n alpha pos scale texAddr palAddr fmt size\n");
+    }
+
+    for (int i = 0; i < count; i++) {
+        fprintf(logFile,
+            "f=%d sys=%d draw=%d tex=%d n=%d a=%d pos=%.2f,%.2f,%.2f scale=%.3f,%.3f "
+            "texAddr=0x%x palAddr=0x%x fmt=%d size=%dx%d\n",
+            frame, emitters[i].systemIndex, emitters[i].drawType, emitters[i].textureIndex,
+            emitters[i].particleCount, emitters[i].alpha,
+            emitters[i].posX, emitters[i].posY, emitters[i].posZ,
+            emitters[i].baseScale, emitters[i].animScale,
+            emitters[i].texAddr, emitters[i].palAddr,
+            emitters[i].texFormat, emitters[i].texWidth, emitters[i].texHeight);
+        lines++;
+    }
+
+    fflush(logFile);
+}
+#endif
+
 int ParticleSystem_DrawAll(void)
 {
     int count = 0;
@@ -463,6 +620,10 @@ int ParticleSystem_DrawAll(void)
             count++;
         }
     }
+
+#ifdef SDK_PORT
+    ParticleSystem_DebugLog();
+#endif
 
     return count;
 }
