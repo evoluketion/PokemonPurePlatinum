@@ -259,6 +259,27 @@ either way.
 The naming keyboard and the TV segment are separate applications and haven't
 been converted.
 
+## Worked example: the overworld and the Pokétch
+
+The overworld map is the main engine and fills the window. Its bottom screen is
+one of a few things picked by `fieldSystem->bottomScreen`
+(`src/overlay005/ov5_021D5BC0.c`). Two of them are handled in
+`src/overlay005/ov5_021EA714.c`:
+
+- **The Pokéball wallpaper** shown before the Pokétch is obtained is hidden
+  outright. It has nothing on it worth showing.
+- **The Pokétch** is a panel in the top-right corner, opened and minimised with
+  R, which the overworld otherwise ignores. It's hidden whenever the player
+  can't move (dialogue, the start menu, cutscenes). Those draw over the right
+  and bottom of the map, and that's when the DS puts the Pokétch to sleep
+  anyway. Clicks on the panel reach the Pokétch through the placement.
+
+`FieldSystem_UpdateBottomScreenFraming` restates the framing every field frame
+rather than at transitions, so whatever an application run from the field left
+behind is corrected on return. When the bottom screen is torn down, it's hidden
+while it fades out and the default framing is restored once it's gone. The
+Underground and the other field bottom screens aren't converted.
+
 ## Rolling this out to other screens
 
 For each of the remaining `src/applications/` screens:

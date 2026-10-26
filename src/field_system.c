@@ -244,6 +244,8 @@ static void HandleFieldInput(FieldSystem *fieldSystem)
         processInput = TRUE;
     }
 
+    FieldSystem_UpdateBottomScreenFraming(fieldSystem, processInput);
+
     FieldInput fieldInput;
     if (processInput) {
         PlayerAvatar_UpdatePlayerMoveState(fieldSystem->playerAvatar);
