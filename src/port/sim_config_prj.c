@@ -42,6 +42,10 @@ static int IniHandler(void* user, const char* section, const char* name,
     if(MATCH("Cheats", "RunFromTrainerBattles")) {
         config->runFromTrainerBattles = StringToBool(value);
     }
+
+    if(MATCH("Cheats", "AlwaysHavePoketch")) {
+        config->alwaysHavePoketch = StringToBool(value);
+    }
 }
 
 static const char * BoolToString(BOOL arg)
@@ -100,6 +104,7 @@ void SIM_Config_prj_SaveConfigFile(SIM_Config_prj_type * aConfig)
     fprintf(configFile, "WalkThroughWalls=%s\n", BoolToString(aConfig->walkThroughWalls));
     fprintf(configFile, "DisableRandomEncounters=%s\n", BoolToString(aConfig->disableRandomEncounters));
     fprintf(configFile, "RunFromTrainerBattles=%s\n", BoolToString(aConfig->runFromTrainerBattles));
+    fprintf(configFile, "AlwaysHavePoketch=%s\n", BoolToString(aConfig->alwaysHavePoketch));
 
     fclose(configFile);
 }

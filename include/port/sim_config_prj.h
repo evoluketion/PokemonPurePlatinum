@@ -17,6 +17,7 @@ typedef struct {
 	BOOL walkThroughWalls; // When enabled, allows the player to walk through walls
     BOOL disableRandomEncounters; // When enabled, all random encounters are turned off
     BOOL runFromTrainerBattles; // When enabled, allows running away from trainer battles
+    BOOL alwaysHavePoketch; // When enabled, the Poketch is on the overworld's bottom screen even before it's obtained
 } SIM_Config_prj_type;
 
 void SIM_Config_prj_LoadDefaults(SIM_Config_prj_type * aConfig);

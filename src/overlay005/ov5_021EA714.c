@@ -16,6 +16,8 @@
 #include "system_flags.h"
 #include "vars_flags.h"
 
+#include "port/sim_config_prj.h"
+
 FS_EXTERN_OVERLAY(poketch_unavailable);
 FS_EXTERN_OVERLAY(poketch);
 
@@ -121,14 +123,23 @@ void FieldSystem_SendPoketchEvent(FieldSystem *fieldSystem, enum PoketchEventID 
 }
 
 // Whether ov5_021EA728 set up the Poketch rather than its unavailable
-// wallpaper. Tearing down has to match what was set up.
+// wallpaper. Tearing down has to match what was set up, and the Always Have
+// Poketch cheat can change the answer in between.
 static BOOL sPoketchSetUp;
 
 static BOOL FieldSystem_ShouldShowPoketch(FieldSystem *fieldSystem)
 {
     Poketch *poketch = SaveData_GetPoketch(fieldSystem->saveData);
     VarsFlags *varsFlags = SaveData_GetVarsFlags(fieldSystem->saveData);
-    return Poketch_IsEnabled(poketch) && (SystemFlag_CheckPoketchHidden(varsFlags) == 0);
+    BOOL enabled = Poketch_IsEnabled(poketch);
+
+#ifdef SDK_PORT
+    if (SIM_Config_prj_GetConfig()->alwaysHavePoketch) {
+        enabled = TRUE;
+    }
+#endif
+
+    return enabled && (SystemFlag_CheckPoketchHidden(varsFlags) == 0);
 }
 
 void ov5_021EA728(FieldSystem *fieldSystem)
