@@ -692,7 +692,7 @@ index e994013..55d5ae0 100644
      fragTexCoord = vec2(texCoord.x, texCoord.y);
      fragInColor = inColor;
 diff --git a/libraries/sim/src/sim_gui.cpp b/libraries/sim/src/sim_gui.cpp
-index 95b3b71..f0cb09c 100644
+index 95b3b71..acc43a0 100644
 --- a/libraries/sim/src/sim_gui.cpp
 +++ b/libraries/sim/src/sim_gui.cpp
 @@ -19,6 +19,7 @@ static constexpr ImVec2 sButtonSize = {100, 20};
@@ -703,7 +703,21 @@ index 95b3b71..f0cb09c 100644
  static bool sShowAppNet = false;
  static bool sShowImGuiDemo = false;
  static bool sShowWindowPrjSpecific = false;
-@@ -73,6 +74,7 @@ void Main() {
+@@ -49,6 +50,13 @@ void Init(SDL_Window * window, SDL_GLContext context) {
+ 
+ 
+ 	ImGui_ImplSDL2_InitForOpenGL(sWindow, sContext);
++
++    // SDL leaves text input on for every window by default, which tells the
++    // desktop the game accepts typed text - so its input method gets the keys
++    // first, and on KDE Plasma holding a letter pops up the accented-character
++    // picker and swallows the key, breaking any button mapped to a letter. Keep
++    // it off; NewFrame turns it on only while a GUI text field wants typing.
++    SDL_StopTextInput();
+ 	const char * glsl_version = "#version 420";
+   	ImGui_ImplOpenGL3_Init(glsl_version);
+ 
+@@ -73,6 +81,7 @@ void Main() {
  
          AppButton("Config", &sShowAppConfig, AppConfigInit, AppConfigMain);
          AppButton("Input", &sShowAppPad, AppPadInit, AppPadMain);
@@ -711,6 +725,22 @@ index 95b3b71..f0cb09c 100644
          AppButton("Multiplayer", &sShowAppNet, AppNetInit, AppNetMain);
          AppButton("ImGui Demo", &sShowImGuiDemo, nullptr, ImGui::ShowDemoWindow);
          AppButton("Application", &sShowWindowPrjSpecific, nullptr, PrjMain);
+@@ -107,6 +116,15 @@ void OpenFileDialog(std::function<void(std::string)> callback) {
+ }
+ 
+ void NewFrame() {
++    // Follow the GUI's text fields with SDL text input - see Init. WantTextInput
++    // is from the previous frame, which is when the field took focus.
++    bool wantTextInput = sEnabled && ImGui::GetIO().WantTextInput;
++    if (wantTextInput && !SDL_IsTextInputActive()) {
++        SDL_StartTextInput();
++    } else if (!wantTextInput && SDL_IsTextInputActive()) {
++        SDL_StopTextInput();
++    }
++
+     ImGui_ImplOpenGL3_NewFrame();
+     ImGui_ImplSDL2_NewFrame();
+     ImGui::NewFrame();
 diff --git a/libraries/sim/src/sim_gui_config.cpp b/libraries/sim/src/sim_gui_config.cpp
 index 4cc4aa3..ca21334 100644
 --- a/libraries/sim/src/sim_gui_config.cpp
