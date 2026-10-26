@@ -1,5 +1,5 @@
 diff --git a/include/simulator/config/sim_config.h b/include/simulator/config/sim_config.h
-index 7d69fe7..c0471e9 100644
+index ce31436..7d09510 100644
 --- a/include/simulator/config/sim_config.h
 +++ b/include/simulator/config/sim_config.h
 @@ -6,7 +6,8 @@
@@ -13,10 +13,10 @@ index 7d69fe7..c0471e9 100644
  
  #define SIM_CONFIG_JOY_HAT_MASK (0x10000)
 diff --git a/include/simulator/g3_handler.h b/include/simulator/g3_handler.h
-index 6e87d9a..88299ed 100644
+index 5658147..c9e0e72 100644
 --- a/include/simulator/g3_handler.h
 +++ b/include/simulator/g3_handler.h
-@@ -135,6 +135,8 @@ void G3SIM_MtxStore(u8 idx);
+@@ -131,6 +131,8 @@ void G3SIM_MtxStore(u8 idx);
  void G3SIM_MtxTranslate(fx32* trans);
  void G3SIM_Normal(u32 data);
  void G3SIM_PolygonAttr(u32 data);
@@ -26,12 +26,12 @@ index 6e87d9a..88299ed 100644
  void G3SIM_SwapBuffers(u8 depthBufferMode);
  void G3SIM_TexCoord(u32 data);
 diff --git a/include/simulator/sim.h b/include/simulator/sim.h
-index 43f57f1..c7b2725 100644
+index 2eb2a3e..6c24810 100644
 --- a/include/simulator/sim.h
 +++ b/include/simulator/sim.h
-@@ -77,6 +77,81 @@ u64 SIM_GetFullFrameTime();
- const char * SIM_GetLibntrGitHash();
+@@ -78,6 +78,81 @@ const char * SIM_GetLibntrGitHash();
  const char * SIM_GetProjectGitHash();
+ SDL_Window * SIM_GetSDLWindow();
  
 +// Where one engine's output lands inside the window, and how it blends there,
 +// under the composited single-screen layout (sim_config's
@@ -124,10 +124,10 @@ index 0ffc13b..60a7537 100644
  }
  
 diff --git a/libraries/sim/src/config/sim_config.c b/libraries/sim/src/config/sim_config.c
-index f6e6922..f295c47 100644
+index 9613af9..ab82624 100644
 --- a/libraries/sim/src/config/sim_config.c
 +++ b/libraries/sim/src/config/sim_config.c
-@@ -305,6 +305,9 @@ static const char * ScreenLayoutTypeToString(SIM_config_screen_layout_type layou
+@@ -308,6 +308,9 @@ static const char * ScreenLayoutTypeToString(SIM_config_screen_layout_type layou
          case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
              ret = "large";
              break;
@@ -137,7 +137,7 @@ index f6e6922..f295c47 100644
      }
      return ret;
  }
-@@ -319,8 +322,10 @@ static SIM_config_screen_layout_type StringToScreenLayoutType(const char * str)
+@@ -322,8 +325,10 @@ static SIM_config_screen_layout_type StringToScreenLayoutType(const char * str)
          ret = SIM_CONFIG_SCREEN_LAYOUT_HORIZONTAL;
      } else if (strcmp(str, "large") == 0) {
          ret = SIM_CONFIG_SCREEN_LAYOUT_LARGE;
@@ -150,7 +150,7 @@ index f6e6922..f295c47 100644
  }
  
 diff --git a/libraries/sim/src/g3_draw.cpp b/libraries/sim/src/g3_draw.cpp
-index 2cb19b4..c093c87 100644
+index 0e5b64f..0f0fa3f 100644
 --- a/libraries/sim/src/g3_draw.cpp
 +++ b/libraries/sim/src/g3_draw.cpp
 @@ -1,4 +1,5 @@
@@ -212,10 +212,10 @@ index 2cb19b4..c093c87 100644
  }
 \ No newline at end of file
 diff --git a/libraries/sim/src/g3_handler.cpp b/libraries/sim/src/g3_handler.cpp
-index 1ded67d..56b7a20 100644
+index e638798..0ca23c6 100644
 --- a/libraries/sim/src/g3_handler.cpp
 +++ b/libraries/sim/src/g3_handler.cpp
-@@ -1418,6 +1418,40 @@ void G3SIM_Normal(u32 data)
+@@ -1414,6 +1414,40 @@ void G3SIM_Normal(u32 data)
      s_g3CurColor[2] = (u8)(color[2] * 255.0f);
  }
  
@@ -256,7 +256,7 @@ index 1ded67d..56b7a20 100644
  //PolygonAttr
  void G3SIM_PolygonAttr(u32 data)
  {
-@@ -1426,6 +1460,7 @@ void G3SIM_PolygonAttr(u32 data)
+@@ -1422,6 +1456,7 @@ void G3SIM_PolygonAttr(u32 data)
      u8 polygonMode = (data & 0b110000) >> 4;
      u8 cullMode = (data & 0b11000000) >> 6;
      u8 depthTest = (data & 0b100000000000000) >> 14;
@@ -264,7 +264,7 @@ index 1ded67d..56b7a20 100644
      u8 useFog = (data & 0b1000000000000000) >> 15;
  
      if(cullMode != s_curPolygonAttr.cullMode || polygonMode != s_curPolygonAttr.polygonMode || alpha != s_curPolygonAttr.alphaInt || depthTest != s_curPolygonAttr.depthTest || useFog != s_curPolygonAttr.fogEnable)
-@@ -1436,11 +1471,7 @@ void G3SIM_PolygonAttr(u32 data)
+@@ -1432,11 +1467,7 @@ void G3SIM_PolygonAttr(u32 data)
  
      if(depthTest != s_curPolygonAttr.depthTest)
      {
@@ -277,7 +277,7 @@ index 1ded67d..56b7a20 100644
      }
  
      s_curPolygonAttr.lightFlag = lightFlag;
-@@ -1449,6 +1480,7 @@ void G3SIM_PolygonAttr(u32 data)
+@@ -1445,6 +1476,7 @@ void G3SIM_PolygonAttr(u32 data)
      s_curPolygonAttr.alphaInt = alpha;
      s_curPolygonAttr.depthTest = depthTest;
      s_curPolygonAttr.fogEnable = useFog;
@@ -285,7 +285,7 @@ index 1ded67d..56b7a20 100644
  
      if(alpha == 31){
          s_curPolygonAttr.alpha = 1.0f;
-@@ -1456,24 +1488,7 @@ void G3SIM_PolygonAttr(u32 data)
+@@ -1452,24 +1484,7 @@ void G3SIM_PolygonAttr(u32 data)
          s_curPolygonAttr.alpha = (float)alpha / 31.0f;
      }
  
@@ -311,7 +311,7 @@ index 1ded67d..56b7a20 100644
  
      return;
  }
-@@ -1681,6 +1696,9 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+@@ -1677,6 +1692,9 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
      
          glVerts[i].x = screenX;
          glVerts[i].y = screenY;
@@ -321,7 +321,7 @@ index 1ded67d..56b7a20 100644
          glVerts[i].s = curVtx->s;
          glVerts[i].t = curVtx->t;
          glVerts[i].r = curVtx->r;
-@@ -1691,7 +1709,7 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+@@ -1687,7 +1705,7 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
  
      // Get the W size and remove the polygon if W is 0
      u32 wsize = 0;
@@ -330,7 +330,7 @@ index 1ded67d..56b7a20 100644
          G3SIM_FxVtx_t * curVtx = &fxVerts[i];
          u32 w = curVtx->w;
          if(w == 0){
-@@ -1703,7 +1721,7 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+@@ -1699,7 +1717,7 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
      }
  
      // Normalize W
@@ -339,7 +339,7 @@ index 1ded67d..56b7a20 100644
          G3SIM_FxVtx_t * curVtx = &fxVerts[i];
          
          s32 w, wshifted;
-@@ -1735,7 +1753,6 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
+@@ -1731,7 +1749,6 @@ void G3SIM_SubmitPolygon(G3SIM_FxVtx_t * fxVerts, int numVerts) {
          }
          
          glVerts[i].z = (((float)z / 16777215.0f) * 2.0f) - 1.0f;
@@ -697,7 +697,7 @@ index 95b3b71..f0cb09c 100644
          AppButton("ImGui Demo", &sShowImGuiDemo, nullptr, ImGui::ShowDemoWindow);
          AppButton("Application", &sShowWindowPrjSpecific, nullptr, PrjMain);
 diff --git a/libraries/sim/src/sim_gui_config.cpp b/libraries/sim/src/sim_gui_config.cpp
-index 4303244..f9c7eb7 100644
+index 4cc4aa3..ca21334 100644
 --- a/libraries/sim/src/sim_gui_config.cpp
 +++ b/libraries/sim/src/sim_gui_config.cpp
 @@ -22,7 +22,8 @@ static SIM_config_type * sConfig;
@@ -710,8 +710,8 @@ index 4303244..f9c7eb7 100644
  };
  
  static constexpr const char * VblankStrings[] = {
-@@ -50,7 +51,7 @@ void AppConfigMain(bool *openState) {
-         SIM_SetInternalResolutionAfterRender(sConfig->internalResolutionScale);
+@@ -55,7 +56,7 @@ void AppConfigMain(bool *openState) {
+         configChanged = true;
      }
  
 -    if(ImGui::Combo("Layout", &screenLayout, ScreenLayoutStrings, 3, 3)) {
@@ -719,7 +719,7 @@ index 4303244..f9c7eb7 100644
          configChanged = true;
      }
      if(ImGui::Checkbox("Swap Screens", &swapScreens)) {
-@@ -83,4 +84,80 @@ void AppConfigMain(bool *openState) {
+@@ -94,4 +95,80 @@ void AppConfigMain(bool *openState) {
      }
  }
  
@@ -802,10 +802,10 @@ index 4303244..f9c7eb7 100644
  }
 \ No newline at end of file
 diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
-index ef55838..c2fa1b6 100644
+index 6fc7d0e..ffcc971 100644
 --- a/libraries/sim/src/sim_main.cpp
 +++ b/libraries/sim/src/sim_main.cpp
-@@ -65,6 +65,19 @@ extern "C" int NitroSpMain(void *arg);
+@@ -61,6 +61,19 @@ extern "C" int NitroSpMain(void *arg);
  // Simulator configuration
  SIM_config_type s_SIM_config = {};
  
@@ -825,7 +825,7 @@ index ef55838..c2fa1b6 100644
  // Thread
  extern OSThreadInfo OSi_ThreadInfo;
  
-@@ -89,6 +102,9 @@ u8 s_SIM_DBG_OAMSenable = 1;
+@@ -85,6 +98,9 @@ u8 s_SIM_DBG_OAMSenable = 1;
  
  u8 s_SIM_useWBuffer = 0;
  
@@ -835,9 +835,9 @@ index ef55838..c2fa1b6 100644
  static struct timespec s_SIM_lastFrameEnd;
  static u64 sRenderFrameTime;
  static u64 sFullFrameTime;
-@@ -257,6 +273,22 @@ static void DrawScreenQuad() {
+@@ -258,6 +274,22 @@ SIM_config_type *SIM_GetConfigPtr() { return &s_SIM_config; }
  
- SIM_config_type *SIM_GetConfigPtr() { return &s_SIM_config; }
+ SDL_Window * SIM_GetSDLWindow() {return window;}
  
 +void SIM_SetMainOnlyPlacement(BOOL isSub, const SIM_MainOnlyPlacement *placement) {
 +  s_SIM_mainOnlyPlacement[isSub ? 1 : 0] = *placement;
@@ -858,18 +858,18 @@ index ef55838..c2fa1b6 100644
  static u64 map(u64 x, u64 in_min, u64 in_max, u64 out_min, u64 out_max) {
    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
  }
-@@ -334,6 +366,10 @@ void *SIM_RenderInit(void *arg) {
-       windowHeight = SIM_NDS_SCREEN_HEIGHT * 2 * 2;
-       windowWidth = (SIM_NDS_SCREEN_WIDTH * 2 * 2) + (SIM_NDS_SCREEN_WIDTH * 2);
-       break;
-+    case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
-+      windowHeight = SIM_NDS_SCREEN_HEIGHT * 2;
-+      windowWidth = SIM_NDS_SCREEN_WIDTH * 2;
-+      break;
+@@ -348,6 +380,10 @@ void *SIM_RenderInit(void *arg) {
+         windowHeight = SIM_NDS_SCREEN_HEIGHT * 2 * 2;
+         windowWidth = (SIM_NDS_SCREEN_WIDTH * 2 * 2) + (SIM_NDS_SCREEN_WIDTH * 2);
+         break;
++      case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
++        windowHeight = SIM_NDS_SCREEN_HEIGHT * 2;
++        windowWidth = SIM_NDS_SCREEN_WIDTH * 2;
++        break;
+       }
      }
    } else {
-     windowHeight = s_SIM_config.windowHeight;
-@@ -460,6 +496,22 @@ void *SIM_RenderInit(void *arg) {
+@@ -482,6 +518,22 @@ void *SIM_RenderInit(void *arg) {
  
    GenerateTexture(dummyScreenTextureId, SIM_NDS_SCREEN_WIDTH,
                    SIM_NDS_SCREEN_HEIGHT * 2);
@@ -892,7 +892,7 @@ index ef55838..c2fa1b6 100644
    GenerateTexture(objWindowTextureId, SIM_NDS_SCREEN_WIDTH,
                    SIM_NDS_SCREEN_HEIGHT * 2);
  
-@@ -795,6 +847,69 @@ static void DrawEngine(BOOL isSub) {
+@@ -817,6 +869,69 @@ static void DrawEngine(BOOL isSub) {
                       glGetUniformLocation(g2shaderProgramID, "bg0as3d"),
                       bg0as3d);
  
@@ -962,7 +962,7 @@ index ef55838..c2fa1b6 100644
    // Pass master bright info to the shader
    float masterBrightFactor = isSub
                                   ? (float)(s_reg_GXS_DB_MASTER_BRIGHT & 0b11111)
-@@ -947,6 +1062,9 @@ void *SIM_Render(void *arg) {
+@@ -969,6 +1084,9 @@ void *SIM_Render(void *arg) {
      // Unbind 3D Framebuffer
      glBindFramebuffer(GL_FRAMEBUFFER, 0);
      glBindRenderbuffer(GL_RENDERBUFFER, 0);
@@ -972,7 +972,7 @@ index ef55838..c2fa1b6 100644
      glUseProgram(g2shaderProgramID);
  
      glDisable(GL_DEPTH_TEST);
-@@ -974,6 +1092,9 @@ void *SIM_Render(void *arg) {
+@@ -996,6 +1114,9 @@ void *SIM_Render(void *arg) {
      case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
        aspectRatio = 768.0f / 384.0f;
        break;
@@ -982,7 +982,7 @@ index ef55838..c2fa1b6 100644
      }
  
      viewWidth = windowWidth;
-@@ -1011,6 +1132,14 @@ void *SIM_Render(void *arg) {
+@@ -1033,6 +1154,14 @@ void *SIM_Render(void *arg) {
          s_TouchPanelCoords[2] = viewX + ((viewWidth / 3) * 2);
          s_TouchPanelCoords[3] = viewY + viewHeight;
          break;
@@ -997,7 +997,7 @@ index ef55838..c2fa1b6 100644
        }
      } else {
        switch (s_SIM_config.screenLayout) {
-@@ -1033,6 +1162,14 @@ void *SIM_Render(void *arg) {
+@@ -1055,6 +1184,14 @@ void *SIM_Render(void *arg) {
          s_TouchPanelCoords[2] = viewX + viewWidth;
          s_TouchPanelCoords[3] = viewY + viewHeight;
          break;
@@ -1012,7 +1012,7 @@ index ef55838..c2fa1b6 100644
        }
      }
  
-@@ -1229,7 +1366,12 @@ void *SIM_Render(void *arg) {
+@@ -1251,7 +1388,12 @@ void *SIM_Render(void *arg) {
      SDL_GetMouseState(&x, &y);
  
      // Convert touch coordinate to DS screen coordinates
@@ -1026,7 +1026,7 @@ index ef55838..c2fa1b6 100644
          y >= s_TouchPanelCoords[1] && y <= s_TouchPanelCoords[3]) {
        s_tpData.x = (u16)map(x, s_TouchPanelCoords[0], s_TouchPanelCoords[2], 0,
                              SIM_NDS_SCREEN_WIDTH);
-@@ -1262,11 +1404,23 @@ void *SIM_Render(void *arg) {
+@@ -1284,11 +1426,23 @@ void *SIM_Render(void *arg) {
      memset(bg3stex, 0,
             sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2);
  
@@ -1055,7 +1055,7 @@ index ef55838..c2fa1b6 100644
  
      // Run HBlank Interrupt
      OS_IRQTable[OS_IE_H_BLANK - 1]();
-@@ -1289,15 +1443,46 @@ void *SIM_Render(void *arg) {
+@@ -1311,15 +1465,46 @@ void *SIM_Render(void *arg) {
  #ifdef SDK_TRACY_ENABLE
      TracyCZoneEnd(SimRenderZone);
  #endif
@@ -1109,7 +1109,7 @@ index ef55838..c2fa1b6 100644
          }
        }
      }
-@@ -1333,6 +1518,15 @@ void *SIM_Render(void *arg) {
+@@ -1355,6 +1540,15 @@ void *SIM_Render(void *arg) {
    glBindFramebuffer(GL_FRAMEBUFFER, g3FrameBuffer);
    glBindRenderbuffer(GL_RENDERBUFFER, g3RenderBufferId);
  
