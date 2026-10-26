@@ -78,11 +78,13 @@ when:
   unrelated gameplay views) where an overlay doesn't make sense at all —
   these screens need an actual UI redesign (repositioning elements onto a
   single engine's layers), not just a compositing trick.
-- The screen relies on stylus/touch input tied to the sub-screen's
-  coordinate space — `main_only`'s touch handling only covers the mechanical
-  "don't crash" case (see `sim_main.c`'s touch-panel bounding box guard);
-  it does not remap touch semantics to mouse/keyboard. That's separate,
-  per-screen input work, not something the compositing layer solves.
+- The screen relies on touch input in a way a mouse can't stand in for.
+  Clicking does work under `main_only`: the sim maps the cursor back through
+  the touch screen's placement (`SIM_MainOnlyWindowToTouch` in
+  `sim_main.cpp`), so a click lands on whatever touch-screen pixel is drawn
+  under it, wherever the screen is placed and however it's scaled. What it
+  doesn't do is invent keyboard alternatives for touch-only prompts, or make
+  sense of a touch screen that's been hidden. That's per-screen input work.
 
 ## Why the title screen needed a small change
 
@@ -223,6 +225,39 @@ Three things about this cutscene generalise:
 Extracting the NARCs and rendering the layers to PNG was far more reliable than
 reading the layer-loading code, and is worth doing first for any scene: it turns
 "which engine has the text" from a guess into a fact.
+
+## Worked example: Professor Rowan's intro
+
+`src/applications/rowan_intro/rowan_intro_app.c` is the third screen converted.
+Rowan, his dialogue and the info panels are on the main engine; the sub engine
+has a full-screen backdrop on BG3 (the olive Poké Ball pattern, and the blue
+panels behind the control info), with its real content (the Yes/No buttons,
+the Poké Ball's centre button, Buneary) on BG1/BG2. So it is the title
+screen's shape: the main engine is the base, and BG3 is forced off so the rest
+overlays Rowan.
+
+The twist is the Poké Ball scene, where the ball itself is drawn into that same
+BG3 backdrop along with a cream background. Two things handle it:
+
+- **Transparent background colours.** The backdrop's tiles use colours 1-8 for
+  the background and 9 and up for the ball, and those tiles back nothing else.
+  Under `main_only` they're loaded with colours 1-8 remapped to 0, the
+  transparent colour, so just the ball is left. This happens at load time, so
+  the NARC stays byte-identical.
+- **A scene framing.** While the ball's backdrop is loaded, BG3 is shown and
+  the sub engine is scaled to 60% and raised, so the ball sits in front of Rowan
+  above the text box instead of covering it. Clicking the ball works through
+  that placement.
+
+The sim also changed for this scene: a master-brightness fade to black on a
+`main_only` cutout overlay now fades its content out instead of darkening it.
+On hardware the ball fades in as part of the whole bottom screen; in the
+composite only the ball is left, and darkening that showed a black disc over
+Rowan. When the base fades along with the overlay the result is the same black
+either way.
+
+The naming keyboard and the TV segment are separate applications and haven't
+been converted.
 
 ## Rolling this out to other screens
 

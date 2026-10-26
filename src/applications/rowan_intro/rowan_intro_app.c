@@ -1,6 +1,8 @@
 #include <nitro.h>
 #include <string.h>
 
+#include <simulator/sim.h>
+
 #include "constants/heap.h"
 #include "constants/string.h"
 #include "constants/versions.h"
@@ -358,6 +360,11 @@ BOOL RowanIntro_Main(ApplicationManager *appMan, int *state)
         GXS_SetVisiblePlane(0);
         SetAutorepeat(4, 8);
 
+        // Rowan's screen is the base and the sub screen overlays it, both
+        // filling the window - see RowanIntro_ToggleSubBackdrop. This also runs
+        // on returning from the naming screen and the TV, which set their own.
+        SIM_ResetMainOnlyPlacements();
+
         RowanIntro_InitGraphics(manager);
         RowanIntro_InitMessageStructs(manager);
         RowanIntro_InitYesNoTouchMenu(manager);
@@ -450,10 +457,120 @@ BOOL RowanIntro_Exit(ApplicationManager *appMan, int *unusedState)
     NamingScreenArgs_Free(manager->playerNamingScreenArgs);
     NamingScreenArgs_Free(manager->rivalNamingScreenArgs);
     ApplicationManager_FreeData(appMan);
+
+    // Reset so later screens aren't left with this screen's framing.
+    SIM_ResetMainOnlyPlacements();
     Heap_Destroy(heapID);
     EnqueueApplication(FS_OVERLAY_ID(game_start), &gGameStartNewSaveAppTemplate);
 
     return TRUE;
+}
+
+// The sub screen's BG3 is a full-screen backdrop - the olive Poke Ball pattern,
+// and the blue panels behind the control info and Yes/No - except in the Poke
+// Ball scene, where the ball itself is drawn into it. The rest of the
+// sub-screen content (the Yes/No buttons, the ball's centre button, Buneary)
+// lives on BG1/BG2. In main_only single-screen mode the sub screen is overlaid
+// on Rowan's, so a full-screen backdrop would hide him: BG3 is shown only for
+// the ball, with its background colours made transparent (see
+// RowanIntro_LoadSubBackdropTiles) and the sub screen scaled down to sit the
+// ball above the text box. The ball's tapped through that placement, which the
+// sim maps mouse clicks back through.
+#define SUB_BG3_TILEMAP_POKEBALL 4
+
+static const SIM_MainOnlyPlacement sPokeballFraming = {
+    .centerX = 0.5f,
+    .centerY = 0.61f,
+    .width = 0.6f,
+    .height = 0.6f,
+    .srcCenterX = 0.5f,
+    .srcCenterY = 0.5f,
+    .srcWidth = 1.0f,
+    .srcHeight = 1.0f,
+    .cutout = TRUE,
+    .defringe = FALSE,
+    .hidden = FALSE,
+};
+
+static BOOL RowanIntro_IsMainOnly(void)
+{
+    return SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY;
+}
+
+static void RowanIntro_ToggleSubBackdrop(RowanIntro *manager, BOOL enable)
+{
+    // Like the title screen's border layers, this has to call through rather
+    // than skip the enable, so a stale BG3 left on by whatever ran before is
+    // actually cleared.
+    if (RowanIntro_IsMainOnly() && manager->bgSubLayer3TilemapIndex != SUB_BG3_TILEMAP_POKEBALL) {
+        enable = FALSE;
+    }
+
+    Bg_ToggleLayer(BG_LAYER_SUB_3, enable);
+}
+
+static void RowanIntro_UpdateSubFraming(RowanIntro *manager)
+{
+    if (!RowanIntro_IsMainOnly()) {
+        return;
+    }
+
+    // BG3 stays enabled from the first fade onwards, so which backdrop is
+    // loaded is what decides whether main_only shows it.
+    if (manager->bgSubLayer3TilemapIndex == SUB_BG3_TILEMAP_POKEBALL) {
+        SIM_SetMainOnlyPlacement(TRUE, &sPokeballFraming);
+        Bg_ToggleLayer(BG_LAYER_SUB_3, TRUE);
+    } else {
+        SIM_ResetMainOnlyPlacements();
+        Bg_ToggleLayer(BG_LAYER_SUB_3, FALSE);
+    }
+}
+
+static void RowanIntro_LoadSubBackdropTiles(RowanIntro *manager)
+{
+    NNSG2dCharacterData *charData;
+    void *ncgrBuffer;
+    u8 *pixels;
+    u32 i;
+
+    if (!RowanIntro_IsMainOnly()) {
+        Graphics_LoadTilesToBgLayer(
+            NARC_INDEX_DEMO__INTRO__INTRO,
+            24,
+            manager->bgConfig,
+            BG_LAYER_SUB_3,
+            0,
+            0,
+            FALSE,
+            manager->heapID);
+        return;
+    }
+
+    // Colours 1-8 are the cream-to-olive background; 9 and up are the ball.
+    // These tiles only ever back the sub BG3 backdrops, which main_only hides
+    // except for the ball, so remapping the background to colour 0 makes it
+    // transparent there and leaves just the ball. Done at load rather than in
+    // the art so the NARC stays byte-identical to the DS build's.
+    ncgrBuffer = Graphics_GetCharData(NARC_INDEX_DEMO__INTRO__INTRO, 24, FALSE, &charData, manager->heapID);
+    pixels = charData->pRawData;
+
+    for (i = 0; i < charData->szByte; i++) {
+        u8 lo = pixels[i] & 0xF;
+        u8 hi = pixels[i] >> 4;
+
+        if (lo <= 8) {
+            lo = 0;
+        }
+
+        if (hi <= 8) {
+            hi = 0;
+        }
+
+        pixels[i] = (hi << 4) | lo;
+    }
+
+    Bg_LoadTiles(manager->bgConfig, BG_LAYER_SUB_3, pixels, charData->szByte, 0);
+    Heap_Free(ncgrBuffer);
 }
 
 static void RowanIntro_VBlankCallback(void *managerVoid)
@@ -1280,15 +1397,7 @@ static void RowanIntro_LoadInitialTilemaps(RowanIntro *manager)
         FALSE,
         manager->heapID);
     Bg_ClearTilesRange(BG_LAYER_MAIN_0, 32, 0, manager->heapID);
-    Graphics_LoadTilesToBgLayer(
-        NARC_INDEX_DEMO__INTRO__INTRO,
-        24,
-        manager->bgConfig,
-        BG_LAYER_SUB_3,
-        0,
-        0,
-        FALSE,
-        manager->heapID);
+    RowanIntro_LoadSubBackdropTiles(manager);
 
     {
         int mainBgPaletteIdx, subBgPaletteIdx;
@@ -1445,6 +1554,8 @@ static void RowanIntro_LoadSubLayer3Tilemap(RowanIntro *manager)
     } else if (manager->bgSubLayer3TilemapIndex == 2) {
         RowanIntro_ChangePaletteAndCopyTilemap(manager, 7, 2);
     }
+
+    RowanIntro_UpdateSubFraming(manager);
 }
 
 static const u8 sBunearyLoadTilemapRectRawData[] = {
@@ -2037,7 +2148,7 @@ static BOOL RowanIntro_Run(RowanIntro *manager)
         Sound_SetSceneAndPlayBGM(SOUND_SCENE_2, SEQ_OPENING_sseq, 1);
         Sound_StopBGM(SEQ_OPENING_sseq, 0);
         Bg_ToggleLayer(BG_LAYER_MAIN_0, TRUE);
-        Bg_ToggleLayer(BG_LAYER_SUB_3, TRUE);
+        RowanIntro_ToggleSubBackdrop(manager, TRUE);
         StartScreenFade(
             FADE_BOTH_SCREENS,
             FADE_TYPE_BRIGHTNESS_IN,
@@ -2715,7 +2826,7 @@ static BOOL RowanIntro_Run(RowanIntro *manager)
     case RI_STATE_NAME_KEYBOARD:
         Bg_ToggleLayer(BG_LAYER_MAIN_0, TRUE);
         Bg_ToggleLayer(BG_LAYER_MAIN_3, TRUE);
-        Bg_ToggleLayer(BG_LAYER_SUB_3, TRUE);
+        RowanIntro_ToggleSubBackdrop(manager, TRUE);
 
         if (manager->playerGender == GENDER_MALE) {
             Bg_ToggleLayer(BG_LAYER_MAIN_1, TRUE);
@@ -2883,7 +2994,7 @@ static BOOL RowanIntro_Run(RowanIntro *manager)
     case RI_STATE_RIVAL_NAME_KEYBOARD:
         Bg_ToggleLayer(BG_LAYER_MAIN_0, TRUE);
         Bg_ToggleLayer(BG_LAYER_MAIN_3, TRUE);
-        Bg_ToggleLayer(BG_LAYER_SUB_3, TRUE);
+        RowanIntro_ToggleSubBackdrop(manager, TRUE);
         Bg_ToggleLayer(BG_LAYER_MAIN_1, TRUE);
         Bg_SetOffset(
             manager->bgConfig,

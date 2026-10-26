@@ -348,7 +348,7 @@ index e638798..0ca23c6 100644
  
      // If we have a quad, convert it into 2 triangles
 diff --git a/libraries/sim/src/shaders/g2_fragment.glsl b/libraries/sim/src/shaders/g2_fragment.glsl
-index b652bd5..01554fc 100644
+index b652bd5..972a39e 100644
 --- a/libraries/sim/src/shaders/g2_fragment.glsl
 +++ b/libraries/sim/src/shaders/g2_fragment.glsl
 @@ -15,6 +15,17 @@ uniform vec4 backdropColor;
@@ -608,6 +608,21 @@ index b652bd5..01554fc 100644
      }
      
      if(inMasterBrightMode == 1) {
+@@ -135,6 +254,14 @@ void main()
+         color.r = color.r + ((1.0 - color.r) * (inMasterBrightFactor/16.0));
+         color.g = color.g + ((1.0 - color.g) * (inMasterBrightFactor/16.0));
+         color.b = color.b + ((1.0 - color.b) * (inMasterBrightFactor/16.0));
++    } else if(inMasterBrightMode == 2 && transparentBackdrop == 1) {
++        // brightness down on a main_only cutout overlay. On hardware this
++        // fades the engine's whole screen to black, but an overlay only has
++        // its drawn content left in the composite, so darkening that turns
++        // e.g. a Poke Ball fading in into a black disc over the scene below.
++        // Fade the content out instead - the same thing a fade to black means
++        // for a screen of its own, and identical when the base fades with it.
++        color.a = color.a * (1.0 - (inMasterBrightFactor / 16.0));
+     } else if(inMasterBrightMode == 2) {
+         // brightness down
+         color.r = color.r - (color.r * (inMasterBrightFactor / 16.0));
 diff --git a/libraries/sim/src/shaders/g3_fragment.glsl b/libraries/sim/src/shaders/g3_fragment.glsl
 index ffd028a..148bba4 100644
 --- a/libraries/sim/src/shaders/g3_fragment.glsl
@@ -802,7 +817,7 @@ index 4cc4aa3..ca21334 100644
  }
 \ No newline at end of file
 diff --git a/libraries/sim/src/sim_main.cpp b/libraries/sim/src/sim_main.cpp
-index 6fc7d0e..ffcc971 100644
+index 6fc7d0e..9ebddae 100644
 --- a/libraries/sim/src/sim_main.cpp
 +++ b/libraries/sim/src/sim_main.cpp
 @@ -61,6 +61,19 @@ extern "C" int NitroSpMain(void *arg);
@@ -835,7 +850,7 @@ index 6fc7d0e..ffcc971 100644
  static struct timespec s_SIM_lastFrameEnd;
  static u64 sRenderFrameTime;
  static u64 sFullFrameTime;
-@@ -258,6 +274,22 @@ SIM_config_type *SIM_GetConfigPtr() { return &s_SIM_config; }
+@@ -258,6 +274,68 @@ SIM_config_type *SIM_GetConfigPtr() { return &s_SIM_config; }
  
  SDL_Window * SIM_GetSDLWindow() {return window;}
  
@@ -845,6 +860,52 @@ index 6fc7d0e..ffcc971 100644
 +
 +void SIM_GetMainOnlyPlacement(BOOL isSub, SIM_MainOnlyPlacement *placement) {
 +  *placement = s_SIM_mainOnlyPlacement[isSub ? 1 : 0];
++}
++
++// Under main_only the engine on the bottom (touch) screen can be scaled and
++// moved anywhere in the window by its placement, so a click has to be mapped
++// back through that placement - the inverse of the G2 shader's sampleCoord - to
++// find which touch-screen pixel is drawn under the cursor. Returns FALSE when
++// the cursor isn't over that engine's output, or the engine is hidden.
++static BOOL SIM_MainOnlyWindowToTouch(int x, int y, int viewX, int viewY,
++                                      int viewWidth, int viewHeight,
++                                      u16 *touchX, u16 *touchY) {
++  // DrawEngine puts the SUB engine on the bottom screen while POWCNT's display
++  // select bit is set, and MAIN there while it's clear.
++  BOOL bottomIsSub = (s_reg_GX_POWCNT >> 15) ? TRUE : FALSE;
++  const SIM_MainOnlyPlacement *placement =
++      &s_SIM_mainOnlyPlacement[bottomIsSub ? 1 : 0];
++
++  if (placement->hidden || viewWidth <= 0 || viewHeight <= 0 ||
++      placement->width <= 0.0f || placement->height <= 0.0f) {
++    return FALSE;
++  }
++
++  // Window coordinates run downwards; the placement's are measured upwards.
++  float s = (float)(x - viewX) / (float)viewWidth;
++  float t = 1.0f - (float)(y - viewY) / (float)viewHeight;
++  float loS = placement->centerX - placement->width * 0.5f;
++  float loT = placement->centerY - placement->height * 0.5f;
++
++  if (s < loS || s > loS + placement->width || t < loT ||
++      t > loT + placement->height) {
++    return FALSE;
++  }
++
++  float srcS = (placement->srcCenterX - placement->srcWidth * 0.5f) +
++               ((s - loS) / placement->width) * placement->srcWidth;
++  float srcT = (placement->srcCenterY - placement->srcHeight * 0.5f) +
++               ((t - loT) / placement->height) * placement->srcHeight;
++
++  if (srcS < 0.0f || srcS > 1.0f || srcT < 0.0f || srcT > 1.0f) {
++    return FALSE;
++  }
++
++  *touchX = (u16)SDL_min((int)(srcS * SIM_NDS_SCREEN_WIDTH),
++                         SIM_NDS_SCREEN_WIDTH - 1);
++  *touchY = (u16)SDL_min((int)((1.0f - srcT) * SIM_NDS_SCREEN_HEIGHT),
++                         SIM_NDS_SCREEN_HEIGHT - 1);
++  return TRUE;
 +}
 +
 +void SIM_ResetMainOnlyPlacements(void) {
@@ -858,7 +919,7 @@ index 6fc7d0e..ffcc971 100644
  static u64 map(u64 x, u64 in_min, u64 in_max, u64 out_min, u64 out_max) {
    return (x - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
  }
-@@ -348,6 +380,10 @@ void *SIM_RenderInit(void *arg) {
+@@ -348,6 +426,10 @@ void *SIM_RenderInit(void *arg) {
          windowHeight = SIM_NDS_SCREEN_HEIGHT * 2 * 2;
          windowWidth = (SIM_NDS_SCREEN_WIDTH * 2 * 2) + (SIM_NDS_SCREEN_WIDTH * 2);
          break;
@@ -869,7 +930,7 @@ index 6fc7d0e..ffcc971 100644
        }
      }
    } else {
-@@ -482,6 +518,22 @@ void *SIM_RenderInit(void *arg) {
+@@ -482,6 +564,22 @@ void *SIM_RenderInit(void *arg) {
  
    GenerateTexture(dummyScreenTextureId, SIM_NDS_SCREEN_WIDTH,
                    SIM_NDS_SCREEN_HEIGHT * 2);
@@ -892,7 +953,7 @@ index 6fc7d0e..ffcc971 100644
    GenerateTexture(objWindowTextureId, SIM_NDS_SCREEN_WIDTH,
                    SIM_NDS_SCREEN_HEIGHT * 2);
  
-@@ -817,6 +869,69 @@ static void DrawEngine(BOOL isSub) {
+@@ -817,6 +915,69 @@ static void DrawEngine(BOOL isSub) {
                       glGetUniformLocation(g2shaderProgramID, "bg0as3d"),
                       bg0as3d);
  
@@ -962,7 +1023,7 @@ index 6fc7d0e..ffcc971 100644
    // Pass master bright info to the shader
    float masterBrightFactor = isSub
                                   ? (float)(s_reg_GXS_DB_MASTER_BRIGHT & 0b11111)
-@@ -969,6 +1084,9 @@ void *SIM_Render(void *arg) {
+@@ -969,6 +1130,9 @@ void *SIM_Render(void *arg) {
      // Unbind 3D Framebuffer
      glBindFramebuffer(GL_FRAMEBUFFER, 0);
      glBindRenderbuffer(GL_RENDERBUFFER, 0);
@@ -972,7 +1033,7 @@ index 6fc7d0e..ffcc971 100644
      glUseProgram(g2shaderProgramID);
  
      glDisable(GL_DEPTH_TEST);
-@@ -996,6 +1114,9 @@ void *SIM_Render(void *arg) {
+@@ -996,6 +1160,9 @@ void *SIM_Render(void *arg) {
      case SIM_CONFIG_SCREEN_LAYOUT_LARGE:
        aspectRatio = 768.0f / 384.0f;
        break;
@@ -982,7 +1043,7 @@ index 6fc7d0e..ffcc971 100644
      }
  
      viewWidth = windowWidth;
-@@ -1033,6 +1154,14 @@ void *SIM_Render(void *arg) {
+@@ -1033,6 +1200,14 @@ void *SIM_Render(void *arg) {
          s_TouchPanelCoords[2] = viewX + ((viewWidth / 3) * 2);
          s_TouchPanelCoords[3] = viewY + viewHeight;
          break;
@@ -997,22 +1058,24 @@ index 6fc7d0e..ffcc971 100644
        }
      } else {
        switch (s_SIM_config.screenLayout) {
-@@ -1055,6 +1184,14 @@ void *SIM_Render(void *arg) {
+@@ -1055,6 +1230,16 @@ void *SIM_Render(void *arg) {
          s_TouchPanelCoords[2] = viewX + viewWidth;
          s_TouchPanelCoords[3] = viewY + viewHeight;
          break;
 +      case SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY:
-+        // Unswapped in main-only mode shows the main (non-touch) screen - no
-+        // touch area.
++        // Unswapped main-only composites both engines into the view, with the
++        // touch screen wherever its placement puts it - see
++        // SIM_MainOnlyWindowToTouch. The box is just the view, for the bounds
++        // check below.
 +        s_TouchPanelCoords[0] = viewX;
 +        s_TouchPanelCoords[1] = viewY;
-+        s_TouchPanelCoords[2] = viewX;
-+        s_TouchPanelCoords[3] = viewY;
++        s_TouchPanelCoords[2] = viewX + viewWidth;
++        s_TouchPanelCoords[3] = viewY + viewHeight;
 +        break;
        }
      }
  
-@@ -1251,7 +1388,12 @@ void *SIM_Render(void *arg) {
+@@ -1251,7 +1436,24 @@ void *SIM_Render(void *arg) {
      SDL_GetMouseState(&x, &y);
  
      // Convert touch coordinate to DS screen coordinates
@@ -1020,13 +1083,25 @@ index 6fc7d0e..ffcc971 100644
 +    // A zero-area touch panel box (e.g. no touch-capable screen visible, as in
 +    // main-only layout showing the main screen) must never reach map()'s
 +    // division below.
-+    if (s_TouchPanelCoords[2] > s_TouchPanelCoords[0] &&
++    u16 placedTouchX, placedTouchY;
++
++    if (s_SIM_config.screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY &&
++        !s_SIM_config.swapScreens) {
++      if (SIM_MainOnlyWindowToTouch(x, y, viewX, viewY, viewWidth, viewHeight,
++                                    &placedTouchX, &placedTouchY)) {
++        s_tpData.x = placedTouchX;
++        s_tpData.y = placedTouchY;
++      } else {
++        s_tpData.validity = 0;
++        s_tpData.touch = 0;
++      }
++    } else if (s_TouchPanelCoords[2] > s_TouchPanelCoords[0] &&
 +        s_TouchPanelCoords[3] > s_TouchPanelCoords[1] &&
 +        x >= s_TouchPanelCoords[0] && x <= s_TouchPanelCoords[2] &&
          y >= s_TouchPanelCoords[1] && y <= s_TouchPanelCoords[3]) {
        s_tpData.x = (u16)map(x, s_TouchPanelCoords[0], s_TouchPanelCoords[2], 0,
                              SIM_NDS_SCREEN_WIDTH);
-@@ -1284,11 +1426,23 @@ void *SIM_Render(void *arg) {
+@@ -1284,11 +1486,23 @@ void *SIM_Render(void *arg) {
      memset(bg3stex, 0,
             sizeof(u8) * 4 * SIM_NDS_SCREEN_WIDTH * SIM_NDS_SCREEN_HEIGHT * 2);
  
@@ -1055,7 +1130,7 @@ index 6fc7d0e..ffcc971 100644
  
      // Run HBlank Interrupt
      OS_IRQTable[OS_IE_H_BLANK - 1]();
-@@ -1311,15 +1465,46 @@ void *SIM_Render(void *arg) {
+@@ -1311,15 +1525,46 @@ void *SIM_Render(void *arg) {
  #ifdef SDK_TRACY_ENABLE
      TracyCZoneEnd(SimRenderZone);
  #endif
@@ -1084,6 +1159,11 @@ index 6fc7d0e..ffcc971 100644
 +        if (remainingNs > marginNs + 1000000) {
 +          SDL_Delay((Uint32)((remainingNs - marginNs - 1000000) / 1000000));
 +        }
++
++        if (marginNs == 0) {
++          for (;;) {
++            struct timespec spinTime;
++            s64 spinElapsedNs;
  
 -      // 60 Fps
 -      if (frameNs < 16600000) {
@@ -1091,11 +1171,6 @@ index 6fc7d0e..ffcc971 100644
 -        u64 frameTimeRemainingMs = frameTimeRemaining / 1000000;
 -        if (frameTimeRemainingMs > 1) {
 -          SDL_Delay(frameTimeRemainingMs - 1);
-+        if (marginNs == 0) {
-+          for (;;) {
-+            struct timespec spinTime;
-+            s64 spinElapsedNs;
-+
 +            clock_gettime(CLOCK_MONOTONIC, &spinTime);
 +            spinElapsedNs =
 +                (((s64)spinTime.tv_sec - (s64)s_SIM_lastFrameEnd.tv_sec) *
@@ -1109,7 +1184,7 @@ index 6fc7d0e..ffcc971 100644
          }
        }
      }
-@@ -1355,6 +1540,15 @@ void *SIM_Render(void *arg) {
+@@ -1355,6 +1600,15 @@ void *SIM_Render(void *arg) {
    glBindFramebuffer(GL_FRAMEBUFFER, g3FrameBuffer);
    glBindRenderbuffer(GL_RENDERBUFFER, g3RenderBufferId);
  
