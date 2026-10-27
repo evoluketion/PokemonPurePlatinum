@@ -50,6 +50,10 @@
 #include "system.h"
 #include "vram_transfer.h"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 #define BATTLE_ANIM_SCRIPT_RES_ID(MEMBER_IDX)  (MEMBER_IDX + 5000)
 #define BATTLE_ANIM_SCRIPT_MAX_SFX_WAIT_FRAMES 90 // 3s
 
@@ -394,6 +398,10 @@ BOOL BattleAnimSystem_Delete(BattleAnimSystem *system)
         NARC_dtor(system->arcs[i]);
     }
 
+#ifdef SDK_PORT
+    SIM_Config_prj_SetForce30FpsLogic(FALSE);
+#endif
+
     Heap_Free(system->context);
     Heap_Free(system);
 
@@ -526,6 +534,12 @@ BOOL BattleAnimSystem_StartMove(BattleAnimSystem *system, MoveAnimation *moveAni
     }
 
     system->moveActive = TRUE;
+
+#ifdef SDK_PORT
+    // Move animations are timed in frames across scripts, tasks, particles and sprites
+    // that all draw as they step, so the whole move runs at the DS logic rate.
+    SIM_Config_prj_SetForce30FpsLogic(TRUE);
+#endif
 
     return TRUE;
 }
@@ -1096,6 +1110,10 @@ static void BattleAnimScriptCmd_End(BattleAnimSystem *system)
     Bg_SetOffset(system->bgConfig, BG_LAYER_MAIN_3, BG_OFFSET_UPDATE_SET_Y, 0);
 
     system->moveActive = FALSE;
+
+#ifdef SDK_PORT
+    SIM_Config_prj_SetForce30FpsLogic(FALSE);
+#endif
 }
 
 static void BattleAnimScriptCmd_CreateEmitter(BattleAnimSystem *system)
