@@ -3179,6 +3179,12 @@ static void Task_SlideHealthBoxIn(SysTask *task, void *data)
 
     switch (healthbox->state) {
     case SLIDE_HEALTHBOX_IN_STATE_ENABLE:
+#ifdef SDK_PORT
+        if (SIM_Config_prj_IsSkippedLogicTick()) {
+            break;
+        }
+#endif
+
         if (healthbox->delay > 0) {
             healthbox->delay--;
             break;

@@ -13,6 +13,10 @@
 #include "sys_task.h"
 #include "sys_task_manager.h"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 static void SysTask_IdleBounceAnim(SysTask *sysTask, void *battlerDataPtr);
 
 void BattlerData_StartIdleBounceAnim(BattlerData *battlerData, BattleSystem *battleSys)
@@ -48,7 +52,15 @@ static void SysTask_IdleBounceAnim(SysTask *sysTask, void *battlerDataPtr)
     BattlerData *battlerData = battlerDataPtr;
     int offsetValue;
 
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsLogicRateDoubled()) {
+        battlerData->degrees += 10;
+    } else {
+        battlerData->degrees += 20;
+    }
+#else
     battlerData->degrees += 20;
+#endif
 
     if (battlerData->degrees >= 360) {
         battlerData->degrees -= 360;

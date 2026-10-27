@@ -35,6 +35,10 @@
 #include "res/graphics/battle/sprites.naix"
 #include "res/text/bank/battle_strings.h"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 #define HEALTHBOX_SCROLL_SPEED      24
 #define HEALTHBOX_SCROLL_OUT_OFFSET 160
 
@@ -1112,6 +1116,12 @@ void HealthBox_Scroll(HealthBox *healthbox, enum HealthBoxScrollDirection direct
  */
 static void Healthbox_Task_Scroll(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     HealthBox *healthbox = data;
     int done = 0;
     const SpriteTemplate *template = HealthBox_MainSpriteTemplate(healthbox->type);
@@ -1970,7 +1980,15 @@ static void Healthbox_Task_Bob(SysTask *task, void *data)
     HealthBox *healthbox = data;
     int y;
 
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsLogicRateDoubled()) {
+        healthbox->degrees += 10;
+    } else {
+        healthbox->degrees += 20;
+    }
+#else
     healthbox->degrees += 20;
+#endif
 
     if (healthbox->degrees >= 360) {
         healthbox->degrees -= 360;
