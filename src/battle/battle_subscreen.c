@@ -896,16 +896,20 @@ static BOOL IsCompactMenuConfig(int menuConfigIndex)
     return rects == sActionMenuTouchRects || rects == sFirstBattleMenuTouchRects || rects == sPalParkMenuTouchRects || rects == sMoveSelectMenuTouchRects;
 }
 
-// Shows the compact menus in the battle scene's free left side, and nothing
-// while no menu is up. Menus not yet converted to the compact layout are shown
-// full size over the scene, as before.
+// Shows the battle scene with the compact menus in its free left side, and
+// nothing over it while no menu is up. Menus not yet converted to the compact
+// layout are shown full size over the scene, as before. The scene is set too,
+// since the bag and party screens hide it (BattleMain_FrameSubMenu).
 static void BattleSubscreen_FrameSingleScreen(BattleSubscreen *btlSubscreen, int menuConfigIndex)
 {
     if (!btlSubscreen->isCompact) {
         return;
     }
 
+    SIM_MainOnlyPlacement sceneFraming = SIM_MAIN_ONLY_PLACEMENT_BASE;
     SIM_MainOnlyPlacement framing = SIM_MAIN_ONLY_PLACEMENT_OVERLAY;
+
+    SIM_SetMainOnlyPlacement(FALSE, &sceneFraming);
 
     if (menuConfigIndex == 0) {
         framing.hidden = TRUE;

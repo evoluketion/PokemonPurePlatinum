@@ -107,6 +107,7 @@ static void BattleMain_InitGraphics(ApplicationManager *appMan);
 static int BattleMain_ExecuteBattlerCommands(ApplicationManager *appMan);
 static void BattleMain_CopyBattleSysToDTOAndFree(ApplicationManager *appMan);
 static void BattleMain_FrameSingleScreen(void);
+static void BattleMain_FrameSubMenu(void);
 static BOOL BattleMain_InitPartnerIntro(ApplicationManager *appMan);
 static BOOL BattleMain_WaitPartnerIntro(ApplicationManager *appMan);
 static BOOL BattleMain_InitTrainerIntro(ApplicationManager *appMan);
@@ -318,6 +319,7 @@ void BattleSystem_EnterSubMenu(BattleSystem *battleSys)
 
     Font_Free(FONT_SUBSCREEN);
     BattleSystem_SetRenderMode(battleSys, 3);
+    BattleMain_FrameSubMenu();
 
     if (battleSys->overlayFlags == FALSE) {
         Overlay_UnloadByID(FS_OVERLAY_ID(battle_anim));
@@ -691,6 +693,21 @@ static void BattleMain_FrameSingleScreen(void)
     SIM_MainOnlyPlacement menuFraming = SIM_MAIN_ONLY_PLACEMENT_OVERLAY;
 
     menuFraming.hidden = TRUE;
+
+    SIM_SetMainOnlyPlacement(FALSE, &sceneFraming);
+    SIM_SetMainOnlyPlacement(TRUE, &menuFraming);
+}
+
+// The bag, party and move-learning screens, which take over the bottom screen,
+// fill the window instead, over the battle - they're too dense to shrink, and
+// the battle is paused behind them. Leaving them sets the touch screen's menus
+// up again, which puts the battle back (BattleSubscreen_FrameSingleScreen).
+static void BattleMain_FrameSubMenu(void)
+{
+    SIM_MainOnlyPlacement sceneFraming = SIM_MAIN_ONLY_PLACEMENT_BASE;
+    SIM_MainOnlyPlacement menuFraming = SIM_MAIN_ONLY_PLACEMENT_BASE;
+
+    sceneFraming.hidden = TRUE;
 
     SIM_SetMainOnlyPlacement(FALSE, &sceneFraming);
     SIM_SetMainOnlyPlacement(TRUE, &menuFraming);
