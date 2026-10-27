@@ -102,3 +102,5 @@ where it is here:
 | Save | Where |
 | --- | --- |
 | `twinleaf-home.sav` | The player's house in Twinleaf, downstairs, before the Pokétch |
+| `route201-briefcase.sav` | Route 201, just before Rowan's briefcase is opened to choose a starter |
+| `route201-grass.sav` | Route 201's tall grass by Sandgem Town, with a starter |

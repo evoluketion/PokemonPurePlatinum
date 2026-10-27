@@ -131,6 +131,8 @@ compile_commands.json
 # Save files
 *.dsv
 *.sav
+# ...except the ones sstest scenarios start from
+!tools/sstest/saves/*.sav
 
 # Savestate files
 *.ds[0-9]
