@@ -34,4 +34,18 @@ static inline void SingleScreen_FrameTextInput(BOOL inputIsSub)
     SIM_SetMainOnlyPlacement(!inputIsSub, &promptFraming);
 }
 
+static inline BOOL SingleScreen_IsActive(void)
+{
+    return SIM_GetConfigPtr()->screenLayout == SIM_CONFIG_SCREEN_LAYOUT_MAIN_ONLY;
+}
+
+// Battles: the enemy's nameplate (healthbox) is raised to the top edge of the
+// screen, and its Poke Ball row with it, to free the left side between it and
+// the player's Pokemon for the command menu.
+#define SINGLE_SCREEN_BATTLE_ENEMY_RAISE 20
+
+// The main screen row just below the raised enemy healthbox, where the battle
+// menus' top edge goes.
+#define SINGLE_SCREEN_BATTLE_MENU_TOP 34
+
 #endif // SINGLE_SCREEN_H

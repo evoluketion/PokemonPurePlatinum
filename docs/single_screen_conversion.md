@@ -296,6 +296,32 @@ behind is corrected on return. When the bottom screen is torn down, it's hidden
 while it fades out and the default framing is restored once it's gone. The
 Underground and the other field bottom screens aren't converted.
 
+## Worked example: battles
+
+The battle scene (main engine) fills the window; the touch screen's menus
+(sub engine) are fitted into its free left side.
+
+- **Room for the menus.** The enemy's healthbox is raised to the top of the
+  screen (`SINGLE_SCREEN_BATTLE_ENEMY_RAISE` in `include/port/single_screen.h`,
+  used by `healthbox.c` and, for the enemy's Poke Ball row, `party_gauge.c`).
+  That leaves a 128x48 gap between it and the player's Pokemon.
+- **Compact menus.** Under `main_only`, `battle_subscreen.c` lays the action
+  menu and the move menu out as 2x2 grids in the bottom half of the sub screen
+  (`isCompact`). The buttons are the original art, rebuilt to a smaller size
+  from their own tiles (`BuildCompactButton`: corners and edges kept, the
+  middle row and column repeated or dropped). The menus' tilemap buffers are
+  rebuilt once, when the sub screen is created, so drawing a menu and the
+  press animation both pick up the compact layout without further changes;
+  the touch rects, cursor layouts and text positions that go with it are the
+  `sCompact*` tables. The backdrop and the faded panels behind the buttons are
+  cleared, so the buttons stand on the battle scene.
+- **Framing.** `BattleSubscreen_FrameSingleScreen` runs whenever a menu is set
+  up: no menu hides the sub screen; a compact menu crops the sub screen to its
+  bottom half and places that at half size in the gap; other menus are, for
+  now, shown full size over the scene. Touch follows the crop, so the mouse
+  works on the compact buttons.
+- The move menu has no room for CANCEL, so it's left with B.
+
 ## Rolling this out to other screens
 
 For each of the remaining `src/applications/` screens:

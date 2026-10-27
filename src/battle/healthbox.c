@@ -4,6 +4,8 @@
 #include <stdlib.h>
 #include <string.h>
 
+#include "port/single_screen.h"
+
 #include "constants/graphics.h"
 #include "constants/heap.h"
 #include "constants/pokemon.h"
@@ -446,9 +448,33 @@ static const SpriteTemplate sHealthBoxTemplate_SoloPlayer = {
     .vramTransfer = FALSE,
 };
 
+// The solo enemy healthbox raised to the top of the screen under main_only;
+// otherwise identical to sHealthBoxTemplate_SoloEnemy below.
+static const SpriteTemplate sHealthBoxTemplate_SoloEnemyRaised;
+
 static const SpriteTemplate sHealthBoxTemplate_SoloEnemy = {
     .x = HEALTHBOX_X_OFFSET_SOLO_ENEMY,
     .y = HEALTHBOX_Y_OFFSET_SOLO_ENEMY,
+    .z = 0,
+    .animIdx = 0,
+    .priority = 24,
+    .plttIdx = 0,
+    .vramType = NNS_G2D_VRAM_TYPE_2DMAIN,
+    .resources = {
+        healthbox_enemy_NCGR_lz,
+        HEALTHBOX_MAIN_PALETTE_RESID,
+        healthbox_short_cell_NCER_lz,
+        misc_single_frame_anim_NANR_lz_5,
+        SPRITE_RESOURCE_NONE,
+        SPRITE_RESOURCE_NONE,
+    },
+    .bgPriority = 0,
+    .vramTransfer = FALSE,
+};
+
+static const SpriteTemplate sHealthBoxTemplate_SoloEnemyRaised = {
+    .x = HEALTHBOX_X_OFFSET_SOLO_ENEMY,
+    .y = HEALTHBOX_Y_OFFSET_SOLO_ENEMY - SINGLE_SCREEN_BATTLE_ENEMY_RAISE,
     .z = 0,
     .animIdx = 0,
     .priority = 24,
@@ -1795,6 +1821,10 @@ static const SpriteTemplate *HealthBox_MainSpriteTemplate(u8 type)
         return &sHealthBoxTemplate_SoloPlayer;
 
     case HEALTHBOX_TYPE_ENEMY_SOLO:
+        if (SingleScreen_IsActive()) {
+            return &sHealthBoxTemplate_SoloEnemyRaised;
+        }
+
         return &sHealthBoxTemplate_SoloEnemy;
 
     case HEALTHBOX_TYPE_PLAYER_SLOT_1:

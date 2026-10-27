@@ -5,6 +5,10 @@
 #include <nitro/sinit.h>
 #include <string.h>
 
+#include <simulator/sim.h>
+
+#include "port/single_screen.h"
+
 #include "constants/battle.h"
 #include "constants/battle/battle_controller.h"
 #include "constants/communication/comm_error.h"
@@ -102,6 +106,7 @@ static const u32 BattleServerVersion = 0x140;
 static void BattleMain_InitGraphics(ApplicationManager *appMan);
 static int BattleMain_ExecuteBattlerCommands(ApplicationManager *appMan);
 static void BattleMain_CopyBattleSysToDTOAndFree(ApplicationManager *appMan);
+static void BattleMain_FrameSingleScreen(void);
 static BOOL BattleMain_InitPartnerIntro(ApplicationManager *appMan);
 static BOOL BattleMain_WaitPartnerIntro(ApplicationManager *appMan);
 static BOOL BattleMain_InitTrainerIntro(ApplicationManager *appMan);
@@ -250,6 +255,8 @@ BOOL Battle_Main(ApplicationManager *appMan, int *state)
     case BATTLE_STATE_MAIN:
         if (BattleMain_ExecuteBattlerCommands(appMan) == TRUE) {
             BattleMain_CopyBattleSysToDTOAndFree(appMan);
+            // Reset so later screens aren't left with the battle's framing.
+            SIM_ResetMainOnlyPlacements();
             *state = BATTLE_STATE_HANDLE_BATTLE_RESULT;
         }
         break;
@@ -675,6 +682,20 @@ static int BattleMain_ExecuteBattlerCommands(ApplicationManager *appMan)
     return battleSys->commandIsEndWait;
 }
 
+// Under main_only the battle scene fills the window. The bottom screen starts
+// hidden; while a menu is up, battle_subscreen.c shows it in the scene's free
+// left side (BattleSubscreen_FrameSingleScreen).
+static void BattleMain_FrameSingleScreen(void)
+{
+    SIM_MainOnlyPlacement sceneFraming = SIM_MAIN_ONLY_PLACEMENT_BASE;
+    SIM_MainOnlyPlacement menuFraming = SIM_MAIN_ONLY_PLACEMENT_OVERLAY;
+
+    menuFraming.hidden = TRUE;
+
+    SIM_SetMainOnlyPlacement(FALSE, &sceneFraming);
+    SIM_SetMainOnlyPlacement(TRUE, &menuFraming);
+}
+
 static void BattleMain_CopyBattleSysToDTOAndFree(ApplicationManager *appMan)
 {
     BattleSystem *battleSys = ApplicationManager_Data(appMan);
@@ -909,6 +930,7 @@ static void BattleMain_InitBattleGraphics(BattleSystem *battleSys, BgConfig *bgC
     G2_SetWndOutsidePlane(GX_WND_PLANEMASK_NONE, 0);
 
     GXLayers_TurnBothDispOn();
+    BattleMain_FrameSingleScreen();
     GXLayers_EngineAToggleLayers(GX_PLANEMASK_OBJ, TRUE);
     GXLayers_EngineBToggleLayers(GX_PLANEMASK_OBJ, TRUE);
     SetVBlankCallback(BattleMain_VBlankCallback, battleSys);
@@ -1682,6 +1704,7 @@ static void BattleMain_InitLinkCommScreen(ApplicationManager *appMan, FieldBattl
     PaletteData_FillBufferRange(linkBattleCommState->paletteData, PLTTBUF_MAIN_BG, PLTTSEL_FADED, 0, 0, 256);
 
     GXLayers_TurnBothDispOn();
+    BattleMain_FrameSingleScreen();
     GXLayers_EngineAToggleLayers(GX_PLANEMASK_OBJ, TRUE);
     Window_Add(linkBattleCommState->bgConfig, linkBattleCommState->window, 1, 2, 0x13, 27, 4, 11, (18 + 12) + 1);
     Window_FillTilemap(linkBattleCommState->window, 0xFF);

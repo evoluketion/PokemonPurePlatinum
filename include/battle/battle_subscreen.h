@@ -226,6 +226,7 @@ typedef struct BattleSubscreen {
         u8 phase;
         u8 delay;
     } catchTutorialState;
+    BOOL isCompact; // main_only: menus laid out compactly, see battle_subscreen.c
 } BattleSubscreen;
 
 typedef struct SlideInPanelState {

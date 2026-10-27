@@ -3,6 +3,8 @@
 #include <nitro.h>
 #include <string.h>
 
+#include "port/single_screen.h"
+
 #include "constants/heap.h"
 
 #include "battle/battle_system.h"
@@ -153,6 +155,19 @@ __attribute__((aligned(4))) static const u16 sPokeballYPosTheirs[] = {
 };
 
 // TODO: naix?
+// Under main_only the enemy's healthbox is raised to the top of the screen
+// (see SINGLE_SCREEN_BATTLE_ENEMY_RAISE), so its Poke Ball row is raised by the
+// same amount to stay just under it. The doubles HIGH row sits under a box that
+// isn't moved.
+static u16 PartyGauge_RaiseTheirs(u16 y, int position)
+{
+    if (SingleScreen_IsActive() && position != PARTY_GAUGE_POSITION_HIGH) {
+        return y - SINGLE_SCREEN_BATTLE_ENEMY_RAISE;
+    }
+
+    return y;
+}
+
 #define PARTY_GAUGE_NCLR     110
 #define PARTY_GAUGE_NCGR_BIN 340
 #define PARTY_GAUGE_NCER_BIN 341
@@ -278,7 +293,7 @@ static void ShowArrow(PartyGaugeArrow *arrow, enum PartyGaugeSide side, enum Par
         ManagedSprite_SetPositionXY(arrow->managedSprite, ARROW_X_START_OURS, sArrowYPosOurs[pos]);
         Sprite_SetAnim(arrow->managedSprite->sprite, PGANM_ARROW_OURS);
     } else {
-        ManagedSprite_SetPositionXY(arrow->managedSprite, ARROW_X_START_THEIRS, sArrowYPosTheirs[pos]);
+        ManagedSprite_SetPositionXY(arrow->managedSprite, ARROW_X_START_THEIRS, PartyGauge_RaiseTheirs(sArrowYPosTheirs[pos], pos));
         Sprite_SetAnim(arrow->managedSprite->sprite, PGANM_ARROW_THEIRS);
     }
 
@@ -320,7 +335,7 @@ static void ShowArrowTask(SysTask *task, void *data)
                 arrow->state++;
             }
 
-            ManagedSprite_SetPositionXY(arrow->managedSprite, arrow->x >> 8, sArrowYPosTheirs[arrow->position]);
+            ManagedSprite_SetPositionXY(arrow->managedSprite, arrow->x >> 8, PartyGauge_RaiseTheirs(sArrowYPosTheirs[arrow->position], arrow->position));
         }
         break;
 
@@ -385,7 +400,7 @@ static void HideArrowTask(SysTask *task, void *data)
                 ManagedSprite_SetPositionXY(arrow->managedSprite, arrow->x >> 8, sArrowYPosOurs[arrow->position]);
             } else {
                 arrow->x += ARROW_OUT_SPEED;
-                ManagedSprite_SetPositionXY(arrow->managedSprite, arrow->x >> 8, sArrowYPosTheirs[arrow->position]);
+                ManagedSprite_SetPositionXY(arrow->managedSprite, arrow->x >> 8, PartyGauge_RaiseTheirs(sArrowYPosTheirs[arrow->position], arrow->position));
             }
         }
 
@@ -428,7 +443,7 @@ static void ShowPokeballs(PartyGaugePokeballs *pokeballs, s8 *numBalls, enum Par
     if (side == PARTY_GAUGE_OURS) {
         ManagedSprite_SetPositionXY(pokeballs->managedSprite, POKEBALL_X_START_OURS, sPokeballYPosOurs[pos]);
     } else {
-        ManagedSprite_SetPositionXY(pokeballs->managedSprite, POKEBALL_X_START_THEIRS, sPokeballYPosTheirs[pos]);
+        ManagedSprite_SetPositionXY(pokeballs->managedSprite, POKEBALL_X_START_THEIRS, PartyGauge_RaiseTheirs(sPokeballYPosTheirs[pos], pos));
     }
 
     Sprite_SetAnim(pokeballs->managedSprite->sprite, frame);
@@ -499,7 +514,7 @@ static void ShowPokeballsStartOfBattleTask(SysTask *task, void *data)
                 pokeballs->state++;
             }
 
-            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, sPokeballYPosTheirs[pokeballs->position]);
+            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, PartyGauge_RaiseTheirs(sPokeballYPosTheirs[pokeballs->position], pokeballs->position));
         }
 
         Sprite_TickFrame(pokeballs->managedSprite->sprite);
@@ -553,7 +568,7 @@ static void ShowPokeballsStartOfBattleTask(SysTask *task, void *data)
                 pokeballs->state++;
             }
 
-            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, sPokeballYPosTheirs[pokeballs->position]);
+            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, PartyGauge_RaiseTheirs(sPokeballYPosTheirs[pokeballs->position], pokeballs->position));
         }
 
         Sprite_TickFrame(pokeballs->managedSprite->sprite);
@@ -603,7 +618,7 @@ static void ShowPokeballsMidBattleTask(SysTask *task, void *data)
                 pokeballs->state++;
             }
 
-            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, sPokeballYPosTheirs[pokeballs->position]);
+            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, PartyGauge_RaiseTheirs(sPokeballYPosTheirs[pokeballs->position], pokeballs->position));
         }
         break;
 
@@ -676,7 +691,7 @@ static void HidePokeballsStartOfBattleTask(SysTask *task, void *data)
             ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, sPokeballYPosOurs[pokeballs->position]);
         } else {
             pokeballs->xStart += POKEBALL_OUT_SPEED;
-            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, sPokeballYPosTheirs[pokeballs->position]);
+            ManagedSprite_SetPositionXY(pokeballs->managedSprite, pokeballs->xStart >> 8, PartyGauge_RaiseTheirs(sPokeballYPosTheirs[pokeballs->position], pokeballs->position));
         }
 
         // Need some more documentation on this one
