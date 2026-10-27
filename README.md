@@ -1,16 +1,11 @@
 # Pokémon Platinum PC Port
 
-This is an experimental PC port of Pokemon Platinum based on the [pret](https://github.com/pret/pokeplatinum) decompilation project. It is powered by the [libntr](https://github.com/cybervisi0n/libntr) suite, a collection of libraries that replace the NitroSDK to allow for easy porting of Nintendo DS titles.
-
-Feel free to join us on [Discord](https://discord.gg/ZgtPszuBeN) for discussion or support.
+This is an experimental, single screen PC port of Pokemon Platinum based on the PC port work of [cybervisi0n](https://github.com/cybervisi0n/pokeplatinum), which is built on [pret](https://github.com/pret/pokeplatinum)'s decompilation project. It is powered by the [libntr](https://github.com/cybervisi0n/libntr) suite, a collection of libraries that replace the NitroSDK to allow for easy porting of Nintendo DS titles.
 
 It should be possible to play the game from start to finish, but there could be crashes and graphical bugs. 
 
-Generative AI/LLM shortcuts were **not** used in the creation of this project and the libntr libraries. **Pull requests or code suggestions using AI will be rejected.**
-
 Project goals:
-* Create a native port of pokeplatinum for 64-bit PC platforms
-* * Long term: Create native ports for homebrew on various game consoles
+* Create a native, single screen port of pokeplatinum for 64-bit PC platforms
 * Facilitate modding by allowing both a PC port and DS ROM to be compiled and debugged from the same source tree
 * Support all WiFi and multiplayer features
 
