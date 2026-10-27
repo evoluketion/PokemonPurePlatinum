@@ -1900,6 +1900,12 @@ void Healthbox_StartLevelUpFlash(HealthBox *healthbox, u8 *doneFlag)
 
 static void Healthbox_Task_LevelUpFlashAnimation(SysTask *task, void *param1)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     HealthboxLevelUpFlashState *flashState = param1;
     SpriteManager *spriteManager = BattleSystem_GetSpriteManager(flashState->healthbox->battleSys);
     int plttOffset;

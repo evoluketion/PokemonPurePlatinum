@@ -6,6 +6,10 @@
 #include "heap.h"
 #include "system.h"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 typedef void (*SpriteDrawFunc)(const SpriteList *, Sprite *);
 typedef void (*SpriteAnimUpdateFunc)(Sprite *);
 
@@ -843,6 +847,15 @@ static void SpriteList_DrawSprite_Stub(const SpriteList *list, Sprite *sprite)
 
 static void Sprite_UpdateAnimInternal(Sprite *sprite)
 {
+#ifdef SDK_PORT
+    // Only the automatic per-update advance is halved. Explicit Sprite_UpdateAnim calls
+    // come from tasks that set their own pace.
+    if (SIM_Config_prj_IsLogicRateDoubled()) {
+        Sprite_UpdateAnim(sprite, sprite->animSpeed >> 1);
+        return;
+    }
+#endif
+
     Sprite_UpdateAnim(sprite, sprite->animSpeed);
 }
 

@@ -5014,6 +5014,12 @@ static void Task_SetMoveAnimation(SysTask *task, void *data)
 
 static void Task_FlickerBattler(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     FlickerBattlerData *flickerBattlerData = data;
     int hide;
 
@@ -5038,6 +5044,12 @@ static void Task_FlickerBattler(SysTask *task, void *data)
 
 static void Task_UpdateHPGauge(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     HealthBox *healthbox = data;
     int result;
 
@@ -5062,6 +5074,12 @@ static void Task_UpdateHPGauge(SysTask *task, void *data)
 
 static void Task_UpdateExpGauge(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     HealthBox *healthbox = data;
     int result;
 
@@ -5109,6 +5127,13 @@ static void Task_PlayFaintingSequence(SysTask *task, void *data)
     BattleAnimSystem *battleAnimSys = BattleSystem_GetBattleAnimSystem(faintingSequenceData->battleSys);
     int y;
     int height;
+
+#ifdef SDK_PORT
+    // States before 4 run the Substitute move animation, which keeps its own timing.
+    if (faintingSequenceData->state >= 4 && SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
 
     switch (faintingSequenceData->state) {
     case 0:
@@ -5368,6 +5393,12 @@ static void Task_WaitForBattleMessagePrint(SysTask *task, void *data)
 static void Task_WaitForAlertMessagePrint(SysTask *task, void *data)
 {
     AlertMsgData *alertMsgData = data;
+
+#ifdef SDK_PORT
+    if (alertMsgData->state == 1 && SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
 
     switch (alertMsgData->state) {
     case 0:
