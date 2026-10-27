@@ -796,6 +796,83 @@ __attribute__((aligned(4))) static const u16 sCompactMoveSlotPPCountPositions[][
     { 0xCC, 179 }
 };
 
+// Target selection as a 2x2 grid, the foe's side on top and the player's
+// below as before: bottom-left, top-right, bottom-right, top-left, the order
+// of its touch rects. Like the move menu it has no room for CANCEL. Its
+// outlines (buffer 5) are rebuilt the same way, so they stay around the
+// buttons.
+static const CompactButton sCompactTargetButtons[] = {
+    { { 0xA, 0x11, 0x0, 0xE }, 3, 2, 8, { 18, 23, 0, 14 } },
+    { { 0x0, 0x9, 0x11, 0x1F }, 3, 2, 8, { 12, 17, 17, 31 } },
+    { { 0xA, 0x11, 0x11, 0x1F }, 3, 2, 8, { 18, 23, 17, 31 } },
+    { { 0x0, 0x9, 0x0, 0xE }, 3, 2, 8, { 12, 17, 0, 14 } },
+};
+
+static const TouchScreenRect sCompactTargetSelectMenuTouchRects[] = {
+    { 144, 191, 0, 119 },
+    { 96, 143, 136, 255 },
+    { 144, 191, 136, 255 },
+    { 96, 143, 0, 119 },
+    { 0xC0, 0xC0, 0x0, 0x0 },
+    { 0xFF, 0x0, 0x0, 0x0 }
+};
+
+// The press animation's rects: the four targets, then CANCEL, which isn't shown.
+__attribute__((aligned(4))) static const SubscreenTilemapRect sCompactTargetSelectButtonPressTilemapRects[] = {
+    { 18, 23, 0, 14 },
+    { 12, 17, 17, 31 },
+    { 18, 23, 17, 31 },
+    { 12, 17, 0, 14 },
+    { 0, 0, 0, 0 },
+};
+
+// sClearMenuSlotTilemapRects: each target button but its top row.
+__attribute__((aligned(4))) static const SubscreenTilemapRect sCompactClearMenuSlotTilemapRects[] = {
+    { 19, 23, 0, 14 },
+    { 13, 17, 17, 31 },
+    { 19, 23, 17, 31 },
+    { 13, 17, 0, 14 },
+};
+
+// The foe's buttons have their Pokemon's icon beside the name rather than
+// below it.
+__attribute__((aligned(4))) static const u16 sCompactTargetSelectNamePositions[][2] = {
+    { 60, 164 },
+    { 208, 116 },
+    { 196, 164 },
+    { 72, 116 },
+    { 0x80, 0xB2 }
+};
+
+__attribute__((aligned(4))) static const u16 sCompactTargetSelectIconPositions[][2] = {
+    { 22, 166 },
+    { 158, 118 },
+    { 158, 166 },
+    { 22, 118 }
+};
+
+// Yes/no and the menus like it (forget a move, use the next Pokemon, ...) as
+// two full-width buttons, one above the other.
+static const CompactButton sCompactYesNoButtons[] = {
+    { { 0x4, 0xB, 0x0, 0x1F }, 3, 2, 16, { 12, 17, 0, 31 } },
+    { { 0xD, 0x14, 0x0, 0x1F }, 3, 2, 16, { 18, 23, 0, 31 } },
+};
+
+static const TouchScreenRect sCompactYesNoMenuTouchRects[] = {
+    { 96, 143, 0, 255 },
+    { 144, 191, 0, 255 },
+    { 0xFF, 0x0, 0x0, 0x0 }
+};
+
+// sYesNoButtonPressTilemapRects: the second button, then the first.
+__attribute__((aligned(4))) static const SubscreenTilemapRect sCompactYesNoButtonPressTilemapRects[] = {
+    { 18, 23, 0, 31 },
+    { 12, 17, 0, 31 },
+};
+
+// Where the two buttons' labels go, centered on x = 128.
+#define COMPACT_YES_NO_TEXT_Y(isSecond) ((isSecond) ? 165 : 117)
+
 // The menu configs with the compact touch rects swapped in, built when a sub
 // screen is created in the compact layout.
 static BattleMenuConfig sCompactBattleMenuConfigs[NELEMS(sBattleMenuConfigs)];
@@ -870,6 +947,27 @@ static void CompactMenuTilemaps(BattleSubscreen *btlSubscreen)
         BuildCompactButton(moveMenu, original, &sCompactMoveButtons[i]);
     }
 
+    // Target selection (buffers 4 and 5) and yes/no (buffer 6).
+    for (int buffer = 4; buffer <= 5; buffer++) {
+        u16 *targetMenu = btlSubscreen->tilemapBuffers[buffer];
+
+        MI_CpuCopy16(targetMenu, original, 0x800);
+        MI_CpuClear16(targetMenu, 0x800);
+
+        for (int i = 0; i < NELEMS(sCompactTargetButtons); i++) {
+            BuildCompactButton(targetMenu, original, &sCompactTargetButtons[i]);
+        }
+    }
+
+    u16 *yesNoMenu = btlSubscreen->tilemapBuffers[6];
+
+    MI_CpuCopy16(yesNoMenu, original, 0x800);
+    MI_CpuClear16(yesNoMenu, 0x800);
+
+    for (int i = 0; i < NELEMS(sCompactYesNoButtons); i++) {
+        BuildCompactButton(yesNoMenu, original, &sCompactYesNoButtons[i]);
+    }
+
     Heap_Free(original);
     MI_CpuClear16(btlSubscreen->tilemapBuffers[0], 0x800);
     MI_CpuClear16(btlSubscreen->tilemapBuffers[2], 0x800);
@@ -885,6 +983,10 @@ static void CompactMenuTilemaps(BattleSubscreen *btlSubscreen)
             sCompactBattleMenuConfigs[i].touchScreenRects = sCompactPalParkMenuTouchRects;
         } else if (sBattleMenuConfigs[i].touchScreenRects == sMoveSelectMenuTouchRects) {
             sCompactBattleMenuConfigs[i].touchScreenRects = sCompactMoveSelectMenuTouchRects;
+        } else if (sBattleMenuConfigs[i].touchScreenRects == sTargetSelectMenuTouchRects) {
+            sCompactBattleMenuConfigs[i].touchScreenRects = sCompactTargetSelectMenuTouchRects;
+        } else if (sBattleMenuConfigs[i].touchScreenRects == sYesNoMenuTouchRects) {
+            sCompactBattleMenuConfigs[i].touchScreenRects = sCompactYesNoMenuTouchRects;
         }
     }
 }
@@ -893,7 +995,8 @@ static BOOL IsCompactMenuConfig(int menuConfigIndex)
 {
     const TouchScreenRect *rects = sBattleMenuConfigs[menuConfigIndex].touchScreenRects;
 
-    return rects == sActionMenuTouchRects || rects == sFirstBattleMenuTouchRects || rects == sPalParkMenuTouchRects || rects == sMoveSelectMenuTouchRects;
+    return rects == sActionMenuTouchRects || rects == sFirstBattleMenuTouchRects || rects == sPalParkMenuTouchRects || rects == sMoveSelectMenuTouchRects
+        || rects == sTargetSelectMenuTouchRects || rects == sYesNoMenuTouchRects;
 }
 
 // Shows the battle scene with the compact menus in its free left side, and
@@ -1963,8 +2066,8 @@ static void BattleSubscreen_DrawYesNoMenu(BattleSubscreen *btlSubscreen, int unu
     String *yesMsg = MessageLoader_GetNewString(msgLoader, BattleStrings_Text_Yes);
     String *noMsg = MessageLoader_GetNewString(msgLoader, BattleStrings_Text_No);
 
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], yesMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, 68, 1, NULL);
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], noMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, 140, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], yesMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(FALSE) : 68, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], noMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(TRUE) : 140, 1, NULL);
 
     String_Free(yesMsg);
     String_Free(noMsg);
@@ -1976,8 +2079,8 @@ static void BattleSubscreen_DrawForgetMoveMenu(BattleSubscreen *btlSubscreen, in
     String *forgetMoveMsg = MessageLoader_GetNewString(msgLoader, BattleStrings_Text_ForgetAMove);
     String *keepMovesMsg = MessageLoader_GetNewString(msgLoader, BattleStrings_Text_KeepOldMoves);
 
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], forgetMoveMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, 68, 1, NULL);
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], keepMovesMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, 140, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], forgetMoveMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(FALSE) : 68, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], keepMovesMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(TRUE) : 140, 1, NULL);
 
     String_Free(forgetMoveMsg);
     String_Free(keepMovesMsg);
@@ -1997,8 +2100,8 @@ static void BattleSubscreen_DrawGiveUpMoveMenu(BattleSubscreen *btlSubscreen, in
     StringTemplate_Format(template, giveUpMoveMsg, giveUpOnMoveFormatMsg);
     StringTemplate_Format(template, dontGiveUpMoveMsg, dontGiveUpOnMoveFormatMsg);
 
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], giveUpMoveMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, 68, 1, NULL);
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], dontGiveUpMoveMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, 140, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], giveUpMoveMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(FALSE) : 68, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], dontGiveUpMoveMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(TRUE) : 140, 1, NULL);
 
     String_Free(giveUpOnMoveFormatMsg);
     String_Free(dontGiveUpOnMoveFormatMsg);
@@ -2047,8 +2150,8 @@ static void BattleSubscreen_DrawUseNextMonMenu(BattleSubscreen *btlSubscreen, in
     StringTemplate_Format(template, useNextMonMsg, formatMsg1);
     StringTemplate_Format(template, fleeMsg, formatMsg2);
 
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], useNextMonMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, 68, 1, NULL);
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], fleeMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, 140, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], useNextMonMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(FALSE) : 68, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], fleeMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(TRUE) : 140, 1, NULL);
 
     String_Free(formatMsg1);
     String_Free(formatMsg2);
@@ -2070,8 +2173,8 @@ static void BattleSubscreen_DrawSwitchMonMenu(BattleSubscreen *btlSubscreen, int
     StringTemplate_Format(template, switchMonMsg, formatMsg1);
     StringTemplate_Format(template, keepBattlingMsg, formatMsg2);
 
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], switchMonMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, 68, 1, NULL);
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], keepBattlingMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, 140, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0], switchMonMsg, FONT_SUBSCREEN, TEXT_COLOR(1, 2, 3), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(FALSE) : 68, 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[1], keepBattlingMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, 128, btlSubscreen->isCompact ? COMPACT_YES_NO_TEXT_Y(TRUE) : 140, 1, NULL);
 
     String_Free(formatMsg1);
     String_Free(formatMsg2);
@@ -2105,6 +2208,8 @@ static void BattleSubscreen_DrawTargetSelectMenu(BattleSubscreen *btlSubscreen, 
 
     message = String_Init(12 + 2 + 5 * 2, HEAP_ID_BATTLE);
 
+    const u16(*namePositions)[2] = btlSubscreen->isCompact ? sCompactTargetSelectNamePositions : sTargetSelectNamePositions;
+
     for (int i = 0; i < SNELEMS(targetSelectData->targetMonData); i++) {
         int battlerIndex = battlersByType[2 + i];
 
@@ -2125,7 +2230,7 @@ static void BattleSubscreen_DrawTargetSelectMenu(BattleSubscreen *btlSubscreen, 
 
             textColor = i & 1 ? TEXT_COLOR(1, 2, 3) : TEXT_COLOR(4, 5, 6);
 
-            BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0 + i], message, FONT_SUBSCREEN, textColor, 6, 20023, sTargetSelectNamePositions[i][0], sTargetSelectNamePositions[i][1], 1, NULL);
+            BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[0 + i], message, FONT_SUBSCREEN, textColor, 6, 20023, namePositions[i][0], namePositions[i][1], 1, NULL);
             String_Free(formatMsg);
 
             switch (i) {
@@ -2146,8 +2251,13 @@ static void BattleSubscreen_DrawTargetSelectMenu(BattleSubscreen *btlSubscreen, 
     String_Free(message);
 
     String *cancelMsg = MessageLoader_GetNewString(msgLoader, BattleStrings_Text_Cancel3);
-    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[4], cancelMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, sTargetSelectNamePositions[4][0], sTargetSelectNamePositions[4][1], 1, NULL);
+    BattleSubscreen_NewFontOAM(btlSubscreen, &btlSubscreen->fontOAMEntry[4], cancelMsg, FONT_SUBSCREEN, TEXT_COLOR(10, 11, 12), 2, 20023, namePositions[4][0], namePositions[4][1], 1, NULL);
     String_Free(cancelMsg);
+
+    if (btlSubscreen->isCompact) {
+        // No CANCEL button in the compact layout.
+        sub_020129D0(btlSubscreen->fontOAMEntry[4].fontOAM, 0);
+    }
 }
 
 static int BattleSubscreen_ProcessActionInput(BattleSubscreen *btlSubscreen, int selectedAction, int unused)
@@ -2271,10 +2381,10 @@ static int BattleSubscreen_ProcessYesNoInput(BattleSubscreen *btlSubscreen, int 
 
     if (selectedButton == TRUE) {
         btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.keyframes = sYesNoButtonPressKeyframes[1];
-        btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.subscreenTilemapRect = &sYesNoButtonPressTilemapRects[1];
+        btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.subscreenTilemapRect = btlSubscreen->isCompact ? &sCompactYesNoButtonPressTilemapRects[1] : &sYesNoButtonPressTilemapRects[1];
     } else {
         btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.keyframes = sYesNoButtonPressKeyframes[0];
-        btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.subscreenTilemapRect = &sYesNoButtonPressTilemapRects[0];
+        btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.subscreenTilemapRect = btlSubscreen->isCompact ? &sCompactYesNoButtonPressTilemapRects[0] : &sYesNoButtonPressTilemapRects[0];
     }
 
     btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.srcBufIndex = 6;
@@ -2321,7 +2431,7 @@ static int BattleSubscreen_ProcessTargetInput(BattleSubscreen *btlSubscreen, int
         StartMenuTransitionTask(SysTask_AnimateMenuButtonPress, btlSubscreen);
 
         btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.keyframes = sTargetSelectButtonPressKeyframes[NELEMS(sTargetSelectButtonPressKeyframes) - 1];
-        btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.subscreenTilemapRect = &sTargetSelectButtonPressTilemapRects[NELEMS(sTargetSelectButtonPressTilemapRects) - 1];
+        btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.subscreenTilemapRect = btlSubscreen->isCompact ? &sCompactTargetSelectButtonPressTilemapRects[NELEMS(sTargetSelectButtonPressTilemapRects) - 1] : &sTargetSelectButtonPressTilemapRects[NELEMS(sTargetSelectButtonPressTilemapRects) - 1];
         btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.srcBufIndex = 4;
         btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.selectedButton = selectedTarget;
         btlSubscreen->menuButtonPressAnimState.ButtonPressAnimationState.fontOAMIdx = 4;
@@ -2443,8 +2553,8 @@ static ManagedSprite *BattleSubscreen_NewPokeIconSprite(BattleSubscreen *btlSubs
 
     SpriteTemplate template = sTargetSelectPokeIconTemplate;
     template.resources[0] = charResID;
-    template.x = sTargetSelectIconPositions[iconIndex][0];
-    template.y = sTargetSelectIconPositions[iconIndex][1];
+    template.x = btlSubscreen->isCompact ? sCompactTargetSelectIconPositions[iconIndex][0] : sTargetSelectIconPositions[iconIndex][0];
+    template.y = btlSubscreen->isCompact ? sCompactTargetSelectIconPositions[iconIndex][1] : sTargetSelectIconPositions[iconIndex][1];
     ManagedSprite *sprite = SpriteSystem_NewSprite(spriteSys, spriteMan, &template);
 
     ManagedSprite_SetPositionXYWithSubscreenOffset(sprite, template.x, template.y, (192 + 80) << FX32_SHIFT);
@@ -2610,13 +2720,21 @@ static void BattleSubscreen_DrawTargetSelectBg(BattleSubscreen *btlSubscreen)
     BgConfig *bgConfig = BattleSystem_GetBgConfig(btlSubscreen->battleSys);
     tilemapBuf = Bg_GetTilemapBuffer(bgConfig, 5);
 
+    // The bars joining targets hit together: between the two rows of buttons,
+    // and between the two columns along each row.
+    int betweenRows = btlSubscreen->isCompact ? 18 : 10;
+    int bottomRowFirst = btlSubscreen->isCompact ? 19 : 12;
+    int bottomRowLast = btlSubscreen->isCompact ? 22 : 16;
+    int topRowFirst = btlSubscreen->isCompact ? 13 : 3;
+    int topRowLast = btlSubscreen->isCompact ? 16 : 7;
+
     GetTargetSlotFlags(btlSubscreen, targetSlotFlags, 0);
 
     if (targetSlotFlags[0] == TRUE) {
         GetBattlerTargetFlags(btlSubscreen, 1, battlerTargetFlags, 0);
 
         if (battlerTargetFlags[3 - 1] == TRUE) {
-            for (i = 12; i <= 16; i++) {
+            for (i = bottomRowFirst; i <= bottomRowLast; i++) {
                 tilemapRow = &tilemapBuf[i * 32];
 
                 for (j = 0xf; j <= 0x10; j++) {
@@ -2626,7 +2744,7 @@ static void BattleSubscreen_DrawTargetSelectBg(BattleSubscreen *btlSubscreen)
         }
 
         if (battlerTargetFlags[4 - 1] == TRUE) {
-            for (i = 10; i <= 10; i++) {
+            for (i = betweenRows; i <= betweenRows; i++) {
                 tilemapRow = &tilemapBuf[i * 32];
 
                 for (j = 2; j <= 12; j++) {
@@ -2640,7 +2758,7 @@ static void BattleSubscreen_DrawTargetSelectBg(BattleSubscreen *btlSubscreen)
         GetBattlerTargetFlags(btlSubscreen, 2, battlerTargetFlags, 0);
 
         if (battlerTargetFlags[3 - 1] == TRUE) {
-            for (i = 10; i <= 10; i++) {
+            for (i = betweenRows; i <= betweenRows; i++) {
                 tilemapRow = &tilemapBuf[i * 32];
 
                 for (j = 0x13; j <= 0x1d; j++) {
@@ -2650,7 +2768,7 @@ static void BattleSubscreen_DrawTargetSelectBg(BattleSubscreen *btlSubscreen)
         }
 
         if (battlerTargetFlags[4 - 1] == TRUE) {
-            for (i = 3; i <= 7; i++) {
+            for (i = topRowFirst; i <= topRowLast; i++) {
                 tilemapRow = &tilemapBuf[i * 32];
 
                 for (j = 0xf; j <= 0x10; j++) {
@@ -2861,11 +2979,13 @@ static void ClearMenuSlotBg(BattleSubscreen *btlSubscreen, int slotIndex)
     BgConfig *bgConfig = BattleSystem_GetBgConfig(btlSubscreen->battleSys);
     PaletteData *paletteData = BattleSystem_GetPaletteData(btlSubscreen->battleSys);
 
-    ApplyMoveSlotTilemap(btlSubscreen, &sClearMenuSlotTileOffsets[slotIndex], &sClearMenuSlotTilemapRects[slotIndex], 4, 0);
+    const SubscreenTilemapRect *rect = btlSubscreen->isCompact ? &sCompactClearMenuSlotTilemapRects[slotIndex] : &sClearMenuSlotTilemapRects[slotIndex];
+
+    ApplyMoveSlotTilemap(btlSubscreen, &sClearMenuSlotTileOffsets[slotIndex], rect, 4, 0);
 
     PaletteData_LoadBuffer(paletteData, &btlSubscreen->subscreenPaletteBuf[0xe * 16], PLTTBUF_SUB_BG, PLTT_DEST(plttSlots[slotIndex]), PALETTE_SIZE_BYTES);
     Bg_ScheduleTilemapTransfer(bgConfig, 4);
-    Bg_FillTilemapRect(bgConfig, 5, 0x6000 / 0x20 - 1, sClearMenuSlotTilemapRects[slotIndex].left, sClearMenuSlotTilemapRects[slotIndex].top, sClearMenuSlotTilemapRects[slotIndex].right - sClearMenuSlotTilemapRects[slotIndex].left + 1, sClearMenuSlotTilemapRects[slotIndex].bottom - sClearMenuSlotTilemapRects[slotIndex].top + 1, 17);
+    Bg_FillTilemapRect(bgConfig, 5, 0x6000 / 0x20 - 1, rect->left, rect->top, rect->right - rect->left + 1, rect->bottom - rect->top + 1, 17);
     Bg_ScheduleTilemapTransfer(bgConfig, 5);
 }
 
@@ -3165,7 +3285,7 @@ static void SysTask_AnimateTargetButtonPress(SysTask *unused, void *subscreen)
 
         for (i = 0; i < SNELEMS(battlerTargetFlags); i++) {
             if (battlerTargetFlags[i] == TRUE) {
-                ApplyMoveSlotTilemap(btlSubscreen, sTargetSelectButtonPressKeyframes[i], &sTargetSelectButtonPressTilemapRects[i], 4, 2);
+                ApplyMoveSlotTilemap(btlSubscreen, sTargetSelectButtonPressKeyframes[i], btlSubscreen->isCompact ? &sCompactTargetSelectButtonPressTilemapRects[i] : &sTargetSelectButtonPressTilemapRects[i], 4, 2);
 
                 if (btlSubscreen->fontOAMEntry[0 + i].fontOAM) {
                     FontOAM_GetXY(btlSubscreen->fontOAMEntry[0 + i].fontOAM, &x, &y);
@@ -3194,7 +3314,7 @@ static void SysTask_AnimateTargetButtonPress(SysTask *unused, void *subscreen)
 
         for (i = 0; i < SNELEMS(battlerTargetFlags); i++) {
             if (battlerTargetFlags[i] == TRUE) {
-                ApplyMoveSlotTilemap(btlSubscreen, sTargetSelectButtonPressKeyframes[i], &sTargetSelectButtonPressTilemapRects[i], 4, 1);
+                ApplyMoveSlotTilemap(btlSubscreen, sTargetSelectButtonPressKeyframes[i], btlSubscreen->isCompact ? &sCompactTargetSelectButtonPressTilemapRects[i] : &sTargetSelectButtonPressTilemapRects[i], 4, 1);
 
                 if (btlSubscreen->fontOAMEntry[0 + i].fontOAM) {
                     FontOAM_GetXY(btlSubscreen->fontOAMEntry[0 + i].fontOAM, &x, &y);
@@ -3954,6 +4074,11 @@ static int BattleSystem_Cursor_Battler(BattleSubscreen *btlSubscreen, BOOL isCur
         }
 
         break;
+    }
+
+    if (btlSubscreen->isCompact) {
+        // No CANCEL row.
+        cursorRows--;
     }
 
     if (isCursorHidden == TRUE) {

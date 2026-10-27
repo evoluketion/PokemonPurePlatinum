@@ -320,7 +320,13 @@ The battle scene (main engine) fills the window; the touch screen's menus
   bottom half and places that at half size in the gap; other menus are, for
   now, shown full size over the scene. Touch follows the crop, so the mouse
   works on the compact buttons.
-- The move menu has no room for CANCEL, so it's left with B.
+- Target selection and the yes/no-style menus (yes/no, switch Pokemon, use
+  the next Pokemon, forget or give up a move) are compacted the same way: a
+  2x2 grid of targets, and two full-width buttons stacked.
+- The move and target menus have no room for CANCEL, so they're left with B.
+- The bag, party and move-learning screens fill the window instead
+  (`BattleMain_FrameSubMenu`), since they're too dense to shrink and the
+  battle is paused behind them.
 
 ## Rolling this out to other screens
 
