@@ -15,7 +15,7 @@ Project goals:
 * Support all WiFi and multiplayer features
 
 ## Setup Guide
-To run the [pre-built binaries found in the releases tab](https://github.com/cybervisi0n/pokeplatinum/releases), **you MUST dump and provide your own US ROM of Pokémon Platinum (CPUE01).** On first launch, you will be prompted to select your .nds ROM file as seen in the images below:
+To run the [pre-built binaries found in the releases tab](https://github.com/evoluketion/pokemonpureplatinum/releases), **you MUST dump and provide your own US ROM of Pokémon Platinum (CPUE01).** On first launch, you will be prompted to select your .nds ROM file as seen in the images below:
 
 ![ROM extraction dialog](images/RomExtraction.png)
 
@@ -35,7 +35,7 @@ You are welcome to create forks of this project, but do not publish any releases
 
 If you publish releases, you are responsible for also complying with the MIT license on libntr by including the copyright and disclaimer.
 
-cybervisi0n is not affiliated with any forks of this project.
+evoluketion is not affiliated with any forks of this project.
 
 ## Building on Linux
 ### Dockerized build (Recommended)
