@@ -144,6 +144,10 @@ void NitroMain(void)
             SoftReset(RESET_CLEAN);
         }
 
+#ifdef SDK_PORT
+        SIM_Config_prj_AdvanceLogicTick();
+#endif
+
         if (CommSys_Update()) {
             CheckHeapCanary();
             RunApplication();

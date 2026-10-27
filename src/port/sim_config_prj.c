@@ -143,3 +143,15 @@ BOOL SIM_Config_prj_IsLogicRateDoubled(void)
       && s_SIM_config_prj.enable60fpsSpeedFix
       && !s_SIM_force30FpsLogic;
 }
+
+static u32 s_SIM_logicTick = 0;
+
+void SIM_Config_prj_AdvanceLogicTick(void)
+{
+  s_SIM_logicTick++;
+}
+
+BOOL SIM_Config_prj_IsSkippedLogicTick(void)
+{
+  return SIM_Config_prj_IsLogicRateDoubled() && (s_SIM_logicTick & 1);
+}

@@ -43,6 +43,15 @@ BOOL SIM_Config_prj_GetForce30FpsLogic(void);
 // the original rate, and halving as well would run it at half speed.
 BOOL SIM_Config_prj_IsLogicRateDoubled(void);
 
+// Counts main-loop iterations; called once per iteration from main.c.
+void SIM_Config_prj_AdvanceLogicTick(void);
+
+// TRUE on every other logic tick while the logic rate is doubled. A task whose
+// timing is written in frames - fixed per-step offsets, frame-count delays -
+// returns early on these ticks to run at the original 30Hz. All such tasks
+// share the same parity, so tasks that move things in step stay in step.
+BOOL SIM_Config_prj_IsSkippedLogicTick(void);
+
 #ifdef __cplusplus
 }
 #endif

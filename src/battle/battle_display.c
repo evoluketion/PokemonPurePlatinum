@@ -79,6 +79,10 @@
 
 #include "res/text/bank/battle_strings.h"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 typedef struct TrainerEncounterData {
     BattleSystem *battleSys;
     Terrain *terrain;
@@ -1725,6 +1729,14 @@ void BattleDisplay_PlayMusic(BattleSystem *battleSys, BattlerData *battlerData, 
 static void Task_SetEncounter(SysTask *task, void *data)
 {
     MonEncounterData *monEncounterData = data;
+
+#ifdef SDK_PORT
+    // Only the slide-in is frame-timed; the shiny sparkle after it is a move animation.
+    if (monEncounterData->state <= 2 && SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     BattleAnimSystem *battleAnimSys = BattleSystem_GetBattleAnimSystem(monEncounterData->battleSys);
     s16 x, y;
 
@@ -1886,6 +1898,14 @@ static void Task_SetEncounter(SysTask *task, void *data)
 static void Task_SetGiratinaEncounter(SysTask *task, void *data)
 {
     MonEncounterData *monEncounterData = data;
+
+#ifdef SDK_PORT
+    // Only the slide-in is frame-timed; the shiny sparkle after it is a move animation.
+    if (monEncounterData->state <= 2 && SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     BattleAnimSystem *battleAnimSys = BattleSystem_GetBattleAnimSystem(monEncounterData->battleSys);
     s16 x, y;
 
@@ -2653,6 +2673,12 @@ static void Task_OpenCaptureBall(SysTask *task, void *data)
 
 static void Task_SetTrainerEncounter(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     TrainerEncounterData *trainerEncounterData = data;
     s16 x1, y1, x2, y2;
     u32 battleType = BattleSystem_GetBattleType(trainerEncounterData->battleSys);
@@ -3050,6 +3076,12 @@ static void Task_ThrowTrainerBall(SysTask *task, void *data)
 
 static void Task_SlideTrainerOut(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     SlideTrainerOutData *slideTrainerOutData = data;
     s16 x;
     s16 y;
@@ -3090,6 +3122,12 @@ static void Task_SlideTrainerOut(SysTask *task, void *data)
 
 static void Task_SlideTrainerIn(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     SlideTrainerInData *slideTrainerInData = data;
     s16 x, y;
 
