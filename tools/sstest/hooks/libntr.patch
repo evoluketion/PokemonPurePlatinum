@@ -1,0 +1,34 @@
+--- a/libraries/sim/src/sim_main.cpp
++++ b/libraries/sim/src/sim_main.cpp
+@@ -3,6 +3,8 @@
+ #define SDL_MAIN_HANDLED
+ 
+ #include <string>
++#include <vector> // SSTEST-HOOK
++extern "C" { unsigned int SIM_SstestFrame; } // SSTEST-HOOK
+ #define _POSIX_C_SOURCE 199309L
+ #include <pthread.h>
+ #include <SDL2/SDL.h>
+@@ -1569,6 +1571,22 @@
+       }
+     }
+ 
++    // SSTEST-HOOK: counts drawn frames for tools/sstest - the one clock both
++    // the frame dumps and the game-side scripted input use. SSTEST_DUMP=N
++    // writes every Nth frame to $SSTEST_DUMP_DIR (default "dump") as a PPM.
++    SIM_SstestFrame++; // SSTEST-HOOK
++    { static int dumpEvery = -1; // SSTEST-HOOK
++      if (dumpEvery < 0) { const char *e = getenv("SSTEST_DUMP"); dumpEvery = e ? atoi(e) : 0; } // SSTEST-HOOK
++      if (dumpEvery > 0 && SIM_SstestFrame % dumpEvery == 0) { // SSTEST-HOOK
++        const char *dir = getenv("SSTEST_DUMP_DIR"); int w, h; SDL_GL_GetDrawableSize(window, &w, &h); // SSTEST-HOOK
++        std::vector<unsigned char> px((size_t)w * h * 3); // SSTEST-HOOK
++        glBindFramebuffer(GL_READ_FRAMEBUFFER, 0); glReadBuffer(GL_BACK); glPixelStorei(GL_PACK_ALIGNMENT, 1); // SSTEST-HOOK
++        glReadPixels(0, 0, w, h, GL_RGB, GL_UNSIGNED_BYTE, px.data()); // SSTEST-HOOK
++        char name[512]; snprintf(name, sizeof(name), "%s/f%06u.ppm", dir ? dir : "dump", SIM_SstestFrame); // SSTEST-HOOK
++        FILE *f = fopen(name, "wb"); // SSTEST-HOOK
++        if (f) { fprintf(f, "P6 %d %d 255\n", w, h); for (int y = h - 1; y >= 0; y--) fwrite(&px[(size_t)y * w * 3], 1, (size_t)w * 3, f); fclose(f); } // SSTEST-HOOK
++      } } // SSTEST-HOOK
++
+     SDL_GL_SwapWindow(window);
+ 
+     if(sChangeInternalResAfterRender) {

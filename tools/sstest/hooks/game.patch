@@ -1,0 +1,84 @@
+diff --git a/src/system.c b/src/system.c
+index 937da2cd0..bdffc2bba 100644
+--- a/src/system.c
++++ b/src/system.c
+@@ -11,6 +11,9 @@
+ #include "math_util.h"
+ #include "sys_task_manager.h"
+ 
++#include <stdio.h> // SSTEST-HOOK
++#include <stdlib.h> // SSTEST-HOOK
++
+ #define MAIN_TASK_MAX        160
+ #ifdef SDK_PORT
+ #define VBLANK_TASK_MAX      64
+@@ -296,6 +299,53 @@ void SleepUnlock(u8 mask)
+     gSystem.inhibitSleep &= ~(mask);
+ }
+ 
++// SSTEST-HOOK: scripted input for tools/sstest - see tools/sstest/README.md.
++// Inert unless an SSTEST_* environment variable is set. Frames are libntr's
++// drawn-frame count (SIM_SstestFrame, from the libntr hook), the same clock the
++// saved frames are numbered by; input is read less often than frames are drawn,
++// so each press fires on the first read at or after its frame.
++//   SSTEST_AUTO="every:offset:mask[:from:to],..."
++//                                        press mask on frames where
++//                                        frame % every == offset, optionally
++//                                        only within [from, to)
++//   SSTEST_AUTO_UNTIL=frame              stop SSTEST_AUTO and SSTEST_TOUCH there
++//   SSTEST_KEYS="start:length:mask,..."  hold mask from frame start
++//   SSTEST_TOUCH="every:offset:x:y[:from:to],..."
++//                                        tap the touch screen periodically
++extern unsigned int SIM_SstestFrame; // SSTEST-HOOK
++static u32 sSstestFrame, sSstestLastFrame; // SSTEST-HOOK
++
++static BOOL Sstest_Periodic(int every, int offset, int from, int to) // SSTEST-HOOK
++{ // SSTEST-HOOK
++    static int until = -1; // SSTEST-HOOK
++    if (until < 0) { const char *u = getenv("SSTEST_AUTO_UNTIL"); until = u ? atoi(u) : 0x7fffffff; } // SSTEST-HOOK
++    if (every <= 0 || sSstestFrame >= (u32)until || sSstestFrame < (u32)from || sSstestFrame >= (u32)to) return FALSE; // SSTEST-HOOK
++    u32 first = sSstestLastFrame + 1; // SSTEST-HOOK
++    u32 hit = first + (u32)((((offset - (int)(first % every)) % every) + every) % every); // SSTEST-HOOK
++    return hit <= sSstestFrame; // SSTEST-HOOK
++} // SSTEST-HOOK
++
++static u32 Sstest_ScriptedKeys(void) // SSTEST-HOOK
++{ // SSTEST-HOOK
++    static BOOL started; // SSTEST-HOOK
++    u32 keys = 0; // SSTEST-HOOK
++    const char *s; // SSTEST-HOOK
++    int a, b, mask, used; // SSTEST-HOOK
++    sSstestLastFrame = started ? sSstestFrame : SIM_SstestFrame - 1; // SSTEST-HOOK
++    sSstestFrame = SIM_SstestFrame; // SSTEST-HOOK
++    started = TRUE; // SSTEST-HOOK
++    for (s = getenv("SSTEST_AUTO"); s && sscanf(s, "%d:%d:%i%n", &a, &b, &mask, &used) == 3; s += used + (s[used] == ',')) { int from = 0, to = 0x7fffffff, more = 0; if (s[used] == ':' && sscanf(s + used, ":%d:%d%n", &from, &to, &more) == 2) used += more; if (Sstest_Periodic(a, b, from, to)) keys |= mask; } // SSTEST-HOOK
++    for (s = getenv("SSTEST_KEYS"); s && sscanf(s, "%d:%d:%i%n", &a, &b, &mask, &used) == 3; s += used + (s[used] == ',')) { if ((u32)a <= sSstestFrame && (u32)(a + b) > sSstestLastFrame + 1) keys |= mask; } // SSTEST-HOOK
++    return keys; // SSTEST-HOOK
++} // SSTEST-HOOK
++
++static void Sstest_ScriptedTouch(TPData *tp) // SSTEST-HOOK
++{ // SSTEST-HOOK
++    const char *s; // SSTEST-HOOK
++    int every, offset, x, y, used; // SSTEST-HOOK
++    for (s = getenv("SSTEST_TOUCH"); s && sscanf(s, "%d:%d:%d:%d%n", &every, &offset, &x, &y, &used) == 4; s += used + (s[used] == ',')) { int from = 0, to = 0x7fffffff, more = 0; if (s[used] == ':' && sscanf(s + used, ":%d:%d%n", &from, &to, &more) == 2) used += more; if (Sstest_Periodic(every, offset, from, to)) { tp->touch = 1; tp->x = x; tp->y = y; tp->validity = TP_VALIDITY_VALID; } } // SSTEST-HOOK
++} // SSTEST-HOOK
++
+ void ReadKeypadAndTouchpad(void)
+ {
+     TPData tpRaw;
+@@ -313,6 +363,7 @@ void ReadKeypadAndTouchpad(void)
+     }
+ 
+     padRead = PAD_Read();
++    padRead |= Sstest_ScriptedKeys(); // SSTEST-HOOK
+ 
+     gSystem.pressedKeysRaw = padRead & (padRead ^ gSystem.heldKeysRaw);
+     gSystem.pressedKeysRepeatableRaw = gSystem.pressedKeysRaw;
+@@ -342,6 +393,7 @@ void ReadKeypadAndTouchpad(void)
+     }
+ 
+     TP_GetCalibratedPoint(&tp, &tpRaw);
++    Sstest_ScriptedTouch(&tp); // SSTEST-HOOK
+ 
+     if (tp.validity == TP_VALIDITY_VALID) {
+         gSystem.touchX = tp.x;
