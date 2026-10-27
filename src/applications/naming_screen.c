@@ -3,6 +3,10 @@
 #include <nitro.h>
 #include <string.h>
 
+#include <simulator/sim.h>
+
+#include "port/single_screen.h"
+
 #include "constants/charcode.h"
 #include "constants/graphics.h"
 #include "constants/heap.h"
@@ -1135,6 +1139,11 @@ static BOOL NamingScreen_Init(ApplicationManager *appMan, int *state)
         gSystem.whichScreenIs3D = DS_SCREEN_SUB;
         GXLayers_SwapDisplay();
 
+        // Under main_only, keep the prompt ("Your name?") from covering the
+        // keyboard's bottom row. The keyboard is the main engine, swapped onto
+        // the touch screen above.
+        SingleScreen_FrameTextInput(FALSE);
+
         NARC_dtor(narc);
         (*state)++;
         break;
@@ -1465,6 +1474,9 @@ static BOOL NamingScreen_Exit(ApplicationManager *appMan, int *unusedState)
 
     gSystem.whichScreenIs3D = DS_SCREEN_MAIN;
     GXLayers_SwapDisplay();
+
+    // Reset so later screens aren't left with this screen's framing.
+    SIM_ResetMainOnlyPlacements();
 
     return TRUE;
 }

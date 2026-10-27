@@ -256,8 +256,24 @@ composite only the ball is left, and darkening that showed a black disc over
 Rowan. When the base fades along with the overlay the result is the same black
 either way.
 
-The naming keyboard and the TV segment are separate applications and haven't
-been converted.
+The TV segment is a separate application and hasn't been converted.
+
+## Text-input screens
+
+**Every text-input screen uses the same layout**, so a prompt never covers what
+the player is typing on: `SingleScreen_FrameTextInput` in
+`include/port/single_screen.h`. The input screen (a keyboard, a word picker) is
+scaled into the top three quarters of the window, keeping its shape, over the
+other screen, whose bottom quarter - where the game's message boxes sit,
+holding the prompt - shows below it. That's the DS's own arrangement, stacked
+into one window. A screen calls it once its displays are set up, passing
+whether the input is on the sub engine, and resets the placements on exit.
+
+The naming keyboard (`src/applications/naming_screen.c`, shared by every
+naming screen - player, rival, nicknames, boxes) was the first: drawn
+full-window, "Your name?" covered the keyboard's number row.
+`tools/sstest/scenarios/naming-keyboard.sh` holds on it. Easy Chat, mail and the
+signature screen are the other input screens still to convert.
 
 ## Worked example: the overworld and the Pokétch
 
