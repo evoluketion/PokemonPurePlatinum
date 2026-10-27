@@ -2256,6 +2256,14 @@ const u8 sBallThrowTypes[] = {
 static void Task_ShowPokemon(SysTask *task, void *data)
 {
     MonShowData *monShowData = data;
+
+#ifdef SDK_PORT
+    // States past 4 run move animations (shiny sparkle, Substitute), which keep their own timing.
+    if (monShowData->state <= 4 && SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     BattleAnimSystem *battleAnimSys = BattleSystem_GetBattleAnimSystem(monShowData->battleSys);
 
     switch (monShowData->state) {
@@ -2523,6 +2531,13 @@ static void Task_ReturnPokemon(SysTask *task, void *data)
     MonReturnData *monReturnData = data;
     BattleAnimSystem *battleAnimSys = BattleSystem_GetBattleAnimSystem(monReturnData->battleSys);
 
+#ifdef SDK_PORT
+    // States before 4 run the Substitute move animation, which keeps its own timing.
+    if (monReturnData->state >= 4 && SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     switch (monReturnData->state) {
     case 0:
         if (monReturnData->isSubstitute) {
@@ -2646,6 +2661,12 @@ static void Task_ReturnPokemon(SysTask *task, void *data)
 
 static void Task_OpenCaptureBall(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     OpenCaptureBallData *captureOpenBallData = data;
 
     switch (captureOpenBallData->state) {
@@ -2810,6 +2831,12 @@ static void Task_SetTrainerEncounter(SysTask *task, void *data)
 
 static void Task_ThrowTrainerBall(SysTask *task, void *data)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     TrainerThrowBallData *trainerThrowBallData = data;
     s16 x, y;
     int animFrame;

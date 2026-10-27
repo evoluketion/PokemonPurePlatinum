@@ -33,6 +33,10 @@
 
 #include "res/graphics/battle/sprites.naix"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 typedef struct {
     int unk_00;
     int unk_04;
@@ -1958,6 +1962,13 @@ static void ov12_022376D0(SysTask *param0, void *param1)
     if (v1->unk_1C == 0) {
         return;
     }
+
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        SpriteSystem_DrawSprites(v1->unk_2C);
+        return;
+    }
+#endif
 
     if (v1->unk_DC > 0) {
         v1->unk_DC--;
