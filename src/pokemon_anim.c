@@ -73,6 +73,10 @@ static void TransformFunc_LinearBounded(TransformData *transform, PokemonAnim *m
 
 static const PokemonAnimCmd sPokemonAnimCmds[NUM_POKEMON_ANIM_COMMANDS] = {
 #include "data/scripts/pokemon_anim_cmd.h"
+
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
 };
 
 static const TransformFuncParameters sTransformFuncToParams[] = {
@@ -190,6 +194,12 @@ void PokemonAnimManager_DeleteAnim(PokemonAnimManager *monAnimMan, u8 index)
 static void Task_RunPokemonAnim(SysTask *task, void *monAnim)
 {
     PokemonAnim *anim = (PokemonAnim *)(monAnim);
+
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
 
     if (anim->startDelay == 0) {
         RunPokemonAnimScript(anim);

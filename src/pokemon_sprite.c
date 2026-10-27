@@ -13,6 +13,10 @@
 
 #include "res/pokemon/pl_otherpoke.naix"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 #define MAX_SPINDA_SPOTS       4
 #define SPINDA_SPOT_COORDS_END 0xFF
 
@@ -1199,6 +1203,12 @@ static void TickPokemonSpriteAnim(PokemonSprite *monSprite)
 
 static void PokemonSprite_TickAnim(PokemonSprite *monSprite)
 {
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
+
     TickPokemonSpriteAnim(monSprite);
 }
 
@@ -1463,6 +1473,12 @@ static void BufferPokemonSpritePlttData(PokemonSpriteManager *monSpriteMan)
                 Heap_Free(nclrFile);
             }
         }
+
+#ifdef SDK_PORT
+        if (SIM_Config_prj_IsSkippedLogicTick()) {
+            continue;
+        }
+#endif
 
         if (monSpriteMan->sprites[i].active && monSpriteMan->sprites[i].transforms.fadeActive) {
             if (monSpriteMan->sprites[i].transforms.fadeDelayCounter == 0) {

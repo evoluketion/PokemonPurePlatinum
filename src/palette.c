@@ -11,6 +11,10 @@
 #include "sys_task.h"
 #include "sys_task_manager.h"
 
+#ifdef SDK_PORT
+#include "port/sim_config_prj.h"
+#endif
+
 static u8 IsMaskedOn(u16 mask, u16 bit);
 static void FlagFadedPaletteBuffer(PaletteData *paletteData, u16 bufferID);
 static void FilterMaskToValidPalettes(int bufferID, PaletteBuffer *buffer, u16 *outMask);
@@ -252,6 +256,12 @@ static void SysTask_FadePalette(SysTask *task, void *data)
     if (paletteData->selectedFlag != TRUE) {
         return;
     }
+
+#ifdef SDK_PORT
+    if (SIM_Config_prj_IsSkippedLogicTick()) {
+        return;
+    }
+#endif
 
     paletteData->fadedBuffers = paletteData->selectedBuffers;
 
